@@ -1,6 +1,10 @@
 package com.capelli.clientmanagementwindow;
 
 import com.capelli.database.Database;
+import com.capelli.validation.ClienteValidator;
+import com.capelli.validation.CommonValidators;
+import com.capelli.validation.ValidationHelper;
+import com.capelli.validation.ValidationResult;
 import com.formdev.flatlaf.FlatLightLaf;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
@@ -14,6 +18,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.ParseException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.imageio.ImageIO;
 import javax.swing.AbstractAction;
 import javax.swing.ButtonGroup;
@@ -37,6 +43,8 @@ import javax.swing.text.MaskFormatter;
 import net.miginfocom.swing.MigLayout;
 
 public class ClientManagementWindow extends JFrame {
+    
+    private static final Logger LOGGER = Logger.getLogger(ClientManagementWindow.class.getName());
 
     private JTextField clienteField, cedulaField, direccionField, telefonoField, tipoExtensionesField;
     private JFormattedTextField fechaCumpleañosField, fechaUltimoTinteField, fechaUltimoQuimicoField, fechaUltimaKeratinaField, fechaUltimoMantField;
@@ -64,6 +72,7 @@ public class ClientManagementWindow extends JFrame {
         initComponents();
         layoutComponents();
         addListeners();
+        setupRealtimeValidation();
         setupKeyBindings();
         loadClients();
     }
@@ -274,19 +283,40 @@ public class ClientManagementWindow extends JFrame {
    
 
     private void addClient() {
-        if (clienteField.getText().trim().isEmpty() || cedulaField.getText().trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "El nombre y la cédula del cliente son obligatorios.", "Error de Validación", JOptionPane.ERROR_MESSAGE);
+        LOGGER.info("Intentando agregar nuevo cliente");
+
+        // Validar datos del cliente
+        ValidationResult result = ClienteValidator.validateCliente(
+            clienteField.getText(),
+            cedulaField.getText(),
+            telefonoField.getText(),
+            null // email si lo agregas en el futuro
+        );
+
+        // Validar dirección
+        ValidationResult addressResult = ClienteValidator.validateAddress(
+            direccionField.getText()
+        );
+        result.merge(addressResult);
+
+        // Mostrar resultado de validación
+        if (!ValidationHelper.validateAndShow(this, result, "Validación de Cliente")) {
+            LOGGER.warning("Validación de cliente falló");
             return;
         }
 
-        String sql = "INSERT INTO clients(full_name, cedula, address, phone, hair_type, birth_date, last_dye_date, last_chemical_date, last_keratin_date, extensions_type, last_extensions_maintenance_date) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO clients(full_name, cedula, address, phone, hair_type, " +
+                     "birth_date, last_dye_date, last_chemical_date, last_keratin_date, " +
+                     "extensions_type, last_extensions_maintenance_date) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
 
-        try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = Database.connect(); 
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
             pstmt.setString(1, clienteField.getText());
             pstmt.setString(2, cedulaField.getText());
             pstmt.setString(3, direccionField.getText());
             pstmt.setString(4, telefonoField.getText());
-            pstmt.setString(5, getSelectedHairType()); // Se añade el nuevo dato
+            pstmt.setString(5, getSelectedHairType());
             pstmt.setString(6, fechaCumpleañosField.getText());
             pstmt.setString(7, fechaUltimoTinteField.getText());
             pstmt.setString(8, fechaUltimoQuimicoField.getText());
@@ -295,14 +325,24 @@ public class ClientManagementWindow extends JFrame {
             pstmt.setString(11, fechaUltimoMantField.getText());
             pstmt.executeUpdate();
 
+            LOGGER.info("Cliente agregado exitosamente");
             JOptionPane.showMessageDialog(this, "Cliente agregado con éxito.");
             loadClients();
             clearFields();
+
         } catch (SQLException e) {
             if (e.getMessage().contains("SQLITE_CONSTRAINT_UNIQUE")) {
-                JOptionPane.showMessageDialog(this, "Error: La cédula '" + cedulaField.getText() + "' ya existe.", "Error de Duplicado", JOptionPane.ERROR_MESSAGE);
+                LOGGER.warning("Intento de agregar cédula duplicada: " + cedulaField.getText());
+                JOptionPane.showMessageDialog(this, 
+                    "Error: La cédula '" + cedulaField.getText() + "' ya existe.", 
+                    "Error de Duplicado", 
+                    JOptionPane.ERROR_MESSAGE);
             } else {
-                JOptionPane.showMessageDialog(this, "Error al agregar el cliente: " + e.getMessage(), "Error de Base de Datos", JOptionPane.ERROR_MESSAGE);
+                LOGGER.log(Level.SEVERE, "Error al agregar cliente", e);
+                JOptionPane.showMessageDialog(this, 
+                    "Error al agregar el cliente: " + e.getMessage(), 
+                    "Error de Base de Datos", 
+                    JOptionPane.ERROR_MESSAGE);
             }
         }
     }
@@ -310,31 +350,67 @@ public class ClientManagementWindow extends JFrame {
     private void updateClient() {
         int selectedRow = clientTable.getSelectedRow();
         if (selectedRow < 0) {
-            JOptionPane.showMessageDialog(this, "Por favor, seleccione un cliente de la tabla para actualizar.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, 
+                "Por favor, seleccione un cliente de la tabla para actualizar.", 
+                "Error", 
+                JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        String sql = "UPDATE clients SET full_name = ?, address = ?, phone = ?, hair_type = ?, birth_date = ?, last_dye_date = ?, last_chemical_date = ?, last_keratin_date = ?, extensions_type = ?, last_extensions_maintenance_date = ? WHERE cedula = ?";
+        LOGGER.info("Intentando actualizar cliente");
 
-        try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        // Validar datos del cliente
+        ValidationResult result = ClienteValidator.validateCliente(
+            clienteField.getText(),
+            cedulaField.getText(),
+            telefonoField.getText(),
+            null
+        );
+
+        ValidationResult addressResult = ClienteValidator.validateAddress(
+            direccionField.getText()
+        );
+        result.merge(addressResult);
+
+        // Mostrar resultado de validación
+        if (!ValidationHelper.validateAndShow(this, result, "Validación de Cliente")) {
+            LOGGER.warning("Validación de cliente falló");
+            return;
+        }
+
+        String sql = "UPDATE clients SET full_name = ?, address = ?, phone = ?, hair_type = ?, " +
+                     "birth_date = ?, last_dye_date = ?, last_chemical_date = ?, " +
+                     "last_keratin_date = ?, extensions_type = ?, " +
+                     "last_extensions_maintenance_date = ? WHERE cedula = ?";
+
+        try (Connection conn = Database.connect(); 
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
             pstmt.setString(1, clienteField.getText());
             pstmt.setString(2, direccionField.getText());
             pstmt.setString(3, telefonoField.getText());
-            pstmt.setString(4, getSelectedHairType()); 
+            pstmt.setString(4, getSelectedHairType());
             pstmt.setString(5, fechaCumpleañosField.getText());
             pstmt.setString(6, fechaUltimoTinteField.getText());
             pstmt.setString(7, fechaUltimoQuimicoField.getText());
             pstmt.setString(8, fechaUltimaKeratinaField.getText());
             pstmt.setString(9, tipoExtensionesField.getText());
             pstmt.setString(10, fechaUltimoMantField.getText());
-            pstmt.setString(11, cedulaField.getText()); 
+            pstmt.setString(11, cedulaField.getText());
 
             pstmt.executeUpdate();
+
+            LOGGER.info("Cliente actualizado exitosamente");
             JOptionPane.showMessageDialog(this, "Cliente actualizado con éxito.");
             loadClients();
             clearFields();
+
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error al actualizar el cliente: " + e.getMessage(), "Error de Base de Datos", JOptionPane.ERROR_MESSAGE);
+            LOGGER.log(Level.SEVERE, "Error al actualizar cliente", e);
+            JOptionPane.showMessageDialog(this, 
+                "Error al actualizar el cliente: " + e.getMessage(), 
+                "Error de Base de Datos", 
+                JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -357,6 +433,81 @@ public class ClientManagementWindow extends JFrame {
             } catch (SQLException e) {
                 JOptionPane.showMessageDialog(this, "Error al eliminar el cliente: " + e.getMessage(), "Error de Base de Datos", JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+    
+    private void setupRealtimeValidation() {
+        // Validación de cédula en tiempo real
+        cedulaField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateCedulaField(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateCedulaField(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateCedulaField(); }
+        });
+
+        // Validación de teléfono en tiempo real
+        telefonoField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validatePhoneField(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validatePhoneField(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validatePhoneField(); }
+        });
+
+        // Validación de nombre en tiempo real
+        clienteField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateNameField(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateNameField(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateNameField(); }
+        });
+    }
+
+    private void validateCedulaField() {
+        String cedula = cedulaField.getText().trim();
+        if (!cedula.isEmpty()) {
+            if (CommonValidators.isValidCedula(cedula)) {
+                ValidationHelper.resetFieldBorder(cedulaField);
+                ValidationHelper.removeErrorTooltip(cedulaField);
+            } else {
+                ValidationHelper.markFieldAsWarning(cedulaField);
+                ValidationHelper.addErrorTooltip(cedulaField, 
+                    "Formato esperado: V-12345678");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(cedulaField);
+        }
+    }
+
+    private void validatePhoneField() {
+        String phone = telefonoField.getText().trim();
+        if (!phone.isEmpty()) {
+            if (CommonValidators.isValidPhone(phone)) {
+                ValidationHelper.resetFieldBorder(telefonoField);
+                ValidationHelper.removeErrorTooltip(telefonoField);
+            } else {
+                ValidationHelper.markFieldAsWarning(telefonoField);
+                ValidationHelper.addErrorTooltip(telefonoField, 
+                    "Debe tener 10-11 dígitos");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(telefonoField);
+        }
+    }
+
+    private void validateNameField() {
+        String name = clienteField.getText().trim();
+        if (!name.isEmpty()) {
+            if (name.length() >= 3 && name.length() <= 100) {
+                ValidationHelper.resetFieldBorder(clienteField);
+                ValidationHelper.removeErrorTooltip(clienteField);
+            } else if (name.length() < 3) {
+                ValidationHelper.markFieldAsWarning(clienteField);
+                ValidationHelper.addErrorTooltip(clienteField, 
+                    "El nombre debe tener al menos 3 caracteres");
+            } else {
+                ValidationHelper.markFieldAsWarning(clienteField);
+                ValidationHelper.addErrorTooltip(clienteField, 
+                    "El nombre no puede tener más de 100 caracteres");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(clienteField);
         }
     }
 

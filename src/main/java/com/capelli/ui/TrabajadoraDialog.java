@@ -2,6 +2,10 @@ package com.capelli.ui;
 
 import com.capelli.model.CuentaBancaria;
 import com.capelli.model.Trabajadora;
+import com.capelli.validation.CommonValidators;
+import com.capelli.validation.TrabajadoraValidator;
+import com.capelli.validation.ValidationHelper;
+import com.capelli.validation.ValidationResult;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;
@@ -17,8 +21,11 @@ import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.logging.Logger;
 
 public class TrabajadoraDialog extends JDialog {
+
+    private static final Logger LOGGER = Logger.getLogger(TrabajadoraDialog.class.getName());
 
     private final Trabajadora trabajadora;
     private boolean saved = false;
@@ -187,6 +194,7 @@ public class TrabajadoraDialog extends JDialog {
             populateFields();
         }
 
+        setupRealtimeValidation();
         pack();
         setLocationRelativeTo(owner);
     }
@@ -208,6 +216,9 @@ public class TrabajadoraDialog extends JDialog {
     }
 
     private void guardar(ActionEvent e) {
+        LOGGER.info("Intentando guardar trabajadora");
+
+        // Preparar trabajadora temporal para validación
         trabajadora.setNombres(txtNombres.getText());
         trabajadora.setApellidos(txtApellidos.getText());
         trabajadora.setTipoCi((String) cbTipoCi.getSelectedItem());
@@ -216,6 +227,7 @@ public class TrabajadoraDialog extends JDialog {
         trabajadora.setCorreoElectronico(txtCorreo.getText());
         trabajadora.setFoto(fotoIcon);
 
+        // Recopilar cuentas bancarias
         List<CuentaBancaria> cuentas = new ArrayList<>();
         for (int i = 0; i < cuentasTableModel.getRowCount(); i++) {
             boolean isPrincipal = (boolean) cuentasTableModel.getValueAt(i, 0);
@@ -225,7 +237,18 @@ public class TrabajadoraDialog extends JDialog {
             cuentas.add(new CuentaBancaria(banco, tipo, numero, isPrincipal));
         }
         trabajadora.setCuentas(cuentas);
-        
+
+        // Validar trabajadora completa
+        TrabajadoraValidator validator = new TrabajadoraValidator();
+        ValidationResult result = validator.validate(trabajadora);
+
+        // Mostrar resultado de validación
+        if (!ValidationHelper.validateAndShow(this, result, "Validación de Trabajadora")) {
+            LOGGER.warning("Validación de trabajadora falló");
+            return;
+        }
+
+        LOGGER.info("Validación exitosa, guardando trabajadora");
         saved = true;
         dispose();
     }
@@ -235,14 +258,34 @@ public class TrabajadoraDialog extends JDialog {
         String tipo = Objects.requireNonNull(cbTipoCuenta.getSelectedItem()).toString();
         String numero = txtNumeroCuenta.getText();
 
-        if (numero.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "El número de cuenta no puede estar vacío.", "Error", JOptionPane.ERROR_MESSAGE);
+        // Validar cuenta antes de agregar
+        ValidationResult result = new ValidationResult();
+        CommonValidators.validateNotEmpty(banco, "Banco", result);
+        CommonValidators.validateNotEmpty(tipo, "Tipo de cuenta", result);
+        CommonValidators.validateCuentaBancaria(numero, "Número de cuenta", result);
+
+        if (!result.isValid()) {
+            ValidationHelper.showErrors(this, result);
             return;
         }
-        
+
+        // Verificar si ya existe una cuenta con ese número
+        for (int i = 0; i < cuentasTableModel.getRowCount(); i++) {
+            String numeroExistente = (String) cuentasTableModel.getValueAt(i, 3);
+            if (numeroExistente.equals(numero)) {
+                JOptionPane.showMessageDialog(this,
+                        "Ya existe una cuenta con ese número",
+                        "Cuenta Duplicada",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        }
+
         boolean isFirstAccount = cuentasTableModel.getRowCount() == 0;
         cuentasTableModel.addRow(new Object[]{isFirstAccount, banco, tipo, numero});
         txtNumeroCuenta.setText("");
+
+        LOGGER.info("Cuenta bancaria agregada");
     }
 
     private void eliminarCuenta(ActionEvent e) {
@@ -263,6 +306,152 @@ public class TrabajadoraDialog extends JDialog {
             fotoIcon = new ImageIcon(fileChooser.getSelectedFile().getAbsolutePath());
             Image scaledImage = fotoIcon.getImage().getScaledInstance(100, 100, Image.SCALE_SMOOTH);
             lblFoto.setIcon(new ImageIcon(scaledImage));
+        }
+    }
+
+    private void setupRealtimeValidation() {
+        // Validación de nombres
+        txtNombres.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateNombres(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateNombres(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateNombres(); }
+        });
+
+        // Validación de apellidos
+        txtApellidos.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateApellidos(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateApellidos(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateApellidos(); }
+        });
+
+        // Validación de CI
+        txtNumeroCi.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateCI(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateCI(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateCI(); }
+        });
+
+        // Validación de teléfono
+        txtTelefono.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateTelefono(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateTelefono(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateTelefono(); }
+        });
+
+        // Validación de correo
+        txtCorreo.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateCorreo(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateCorreo(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateCorreo(); }
+        });
+
+        // Validación de número de cuenta
+        txtNumeroCuenta.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validateNumeroCuenta(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validateNumeroCuenta(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validateNumeroCuenta(); }
+        });
+    }
+
+    private void validateNombres() {
+        String nombres = txtNombres.getText().trim();
+        if (!nombres.isEmpty()) {
+            if (nombres.length() >= 2 && nombres.length() <= 50) {
+                ValidationHelper.resetFieldBorder(txtNombres);
+                ValidationHelper.removeErrorTooltip(txtNombres);
+            } else {
+                ValidationHelper.markFieldAsWarning(txtNombres);
+                ValidationHelper.addErrorTooltip(txtNombres,
+                        "Debe tener entre 2 y 50 caracteres");
+            }
+        } else {
+            ValidationHelper.markFieldAsError(txtNombres);
+            ValidationHelper.addErrorTooltip(txtNombres, "Campo obligatorio");
+        }
+    }
+
+    private void validateApellidos() {
+        String apellidos = txtApellidos.getText().trim();
+        if (!apellidos.isEmpty()) {
+            if (apellidos.length() >= 2 && apellidos.length() <= 50) {
+                ValidationHelper.resetFieldBorder(txtApellidos);
+                ValidationHelper.removeErrorTooltip(txtApellidos);
+            } else {
+                ValidationHelper.markFieldAsWarning(txtApellidos);
+                ValidationHelper.addErrorTooltip(txtApellidos,
+                        "Debe tener entre 2 y 50 caracteres");
+            }
+        } else {
+            ValidationHelper.markFieldAsError(txtApellidos);
+            ValidationHelper.addErrorTooltip(txtApellidos, "Campo obligatorio");
+        }
+    }
+
+    private void validateCI() {
+        String tipoCi = (String) cbTipoCi.getSelectedItem();
+        String numeroCi = txtNumeroCi.getText().trim();
+
+        if (!numeroCi.isEmpty()) {
+            String ciCompleta = tipoCi + "-" + numeroCi;
+            if (CommonValidators.isValidCedula(ciCompleta)) {
+                ValidationHelper.resetFieldBorder(txtNumeroCi);
+                ValidationHelper.removeErrorTooltip(txtNumeroCi);
+            } else {
+                ValidationHelper.markFieldAsWarning(txtNumeroCi);
+                ValidationHelper.addErrorTooltip(txtNumeroCi,
+                        "Debe contener entre 6 y 9 dígitos");
+            }
+        } else {
+            ValidationHelper.markFieldAsError(txtNumeroCi);
+            ValidationHelper.addErrorTooltip(txtNumeroCi, "Campo obligatorio");
+        }
+    }
+
+    private void validateTelefono() {
+        String telefono = txtTelefono.getText().trim();
+        if (!telefono.isEmpty()) {
+            if (CommonValidators.isValidPhone(telefono)) {
+                ValidationHelper.resetFieldBorder(txtTelefono);
+                ValidationHelper.removeErrorTooltip(txtTelefono);
+            } else {
+                ValidationHelper.markFieldAsWarning(txtTelefono);
+                ValidationHelper.addErrorTooltip(txtTelefono,
+                        "Debe tener 10-11 dígitos");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(txtTelefono);
+        }
+    }
+
+    private void validateCorreo() {
+        String correo = txtCorreo.getText().trim();
+        if (!correo.isEmpty()) {
+            if (CommonValidators.isValidEmail(correo)) {
+                ValidationHelper.resetFieldBorder(txtCorreo);
+                ValidationHelper.removeErrorTooltip(txtCorreo);
+            } else {
+                ValidationHelper.markFieldAsWarning(txtCorreo);
+                ValidationHelper.addErrorTooltip(txtCorreo,
+                        "Formato de email inválido");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(txtCorreo);
+        }
+    }
+
+    private void validateNumeroCuenta() {
+        String numero = txtNumeroCuenta.getText().trim();
+        if (!numero.isEmpty()) {
+            if (CommonValidators.isValidCuentaBancaria(numero)) {
+                ValidationHelper.resetFieldBorder(txtNumeroCuenta);
+                ValidationHelper.removeErrorTooltip(txtNumeroCuenta);
+            } else {
+                ValidationHelper.markFieldAsWarning(txtNumeroCuenta);
+                ValidationHelper.addErrorTooltip(txtNumeroCuenta,
+                        "Debe tener exactamente 20 dígitos");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(txtNumeroCuenta);
         }
     }
 

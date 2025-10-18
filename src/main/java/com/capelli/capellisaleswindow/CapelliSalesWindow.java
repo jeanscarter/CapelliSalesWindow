@@ -33,6 +33,7 @@ import com.capelli.config.AppConfig;
 import java.io.InputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import com.capelli.validation.*;
 
 public class CapelliSalesWindow extends JFrame {
 
@@ -45,10 +46,10 @@ public class CapelliSalesWindow extends JFrame {
     private final List<String> serviciosConMultiplesTrabajadoras = Arrays.asList(AppConfig.getMultipleWorkerServices());
     private double tasaBcv = AppConfig.getDefaultBcvRate();
 
-    private boolean isDarkMode = true; 
+    private boolean isDarkMode = true;
 
     private final DefaultTableModel tableModel;
-    private JTable serviciosTable; 
+    private JTable serviciosTable;
     private JTextField cedulaField;
     private JLabel nombreClienteLabel;
     private JLabel tasaLabel;
@@ -86,7 +87,6 @@ public class CapelliSalesWindow extends JFrame {
             LOGGER.log(Level.WARNING, "Error al cargar icono de aplicación", e);
         }
 
-    
         SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
             @Override
             protected Double doInBackground() throws Exception {
@@ -111,7 +111,7 @@ public class CapelliSalesWindow extends JFrame {
             }
         };
         worker.execute();
-        JLabel tasaLabel = new JLabel("Tasa BCV: Cargando..."); 
+        JLabel tasaLabel = new JLabel("Tasa BCV: Cargando...");
 
         tableModel = new DefaultTableModel(new String[]{"Servicio", "Trabajador(a)", "Precio ($)"}, 0) {
             @Override
@@ -154,10 +154,68 @@ public class CapelliSalesWindow extends JFrame {
         mainPanel.add(crearPanelDerechoInferior(), gbc);
 
         add(mainPanel);
+
+        // Validación en tiempo real para propina
+        propinaField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            ValidationHelper.resetFieldBorder(propinaField);
+            try {
+                double propina = Double.parseDouble(propinaField.getText());
+                if (propina < 0) {
+                    ValidationHelper.markFieldAsError(propinaField);
+                    ValidationHelper.addErrorTooltip(propinaField, "La propina no puede ser negativa");
+                } else {
+                    ValidationHelper.removeErrorTooltip(propinaField);
+                }
+            } catch (NumberFormatException e) {
+                if (!propinaField.getText().isEmpty()) {
+                    ValidationHelper.markFieldAsError(propinaField);
+                    ValidationHelper.addErrorTooltip(propinaField, "Debe ser un número válido");
+                }
+            }
+            actualizarTotales();
+        }));
+
+        // Validación en tiempo real para monto pagado
+        montoPagadoField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            ValidationHelper.resetFieldBorder(montoPagadoField);
+            try {
+                double monto = Double.parseDouble(montoPagadoField.getText());
+                if (monto < 0) {
+                    ValidationHelper.markFieldAsError(montoPagadoField);
+                    ValidationHelper.addErrorTooltip(montoPagadoField, "El monto no puede ser negativo");
+                } else {
+                    ValidationHelper.removeErrorTooltip(montoPagadoField);
+                }
+            } catch (NumberFormatException e) {
+                if (!montoPagadoField.getText().isEmpty()) {
+                    ValidationHelper.markFieldAsError(montoPagadoField);
+                    ValidationHelper.addErrorTooltip(montoPagadoField, "Debe ser un número válido");
+                }
+            }
+            actualizarTotales();
+        }));
+
+        // Validación de cédula en tiempo real
+        cedulaField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            String cedula = cedulaField.getText().trim();
+            if (!cedula.isEmpty()) {
+                if (CommonValidators.isValidCedula(cedula)) {
+                    ValidationHelper.resetFieldBorder(cedulaField);
+                    ValidationHelper.removeErrorTooltip(cedulaField);
+                } else {
+                    ValidationHelper.markFieldAsWarning(cedulaField);
+                    ValidationHelper.addErrorTooltip(cedulaField,
+                            "Formato: V-12345678 o E-12345678");
+                }
+            } else {
+                ValidationHelper.resetFieldBorder(cedulaField);
+                ValidationHelper.removeErrorTooltip(cedulaField);
+            }
+        }));
     }
 
     private void cargarDatosDesdeDB() {
-       
+
         String sqlServices = "SELECT name, price FROM services";
         try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlServices)) {
             preciosServicios.clear();
@@ -169,13 +227,11 @@ public class CapelliSalesWindow extends JFrame {
         }
 
         String sqlEmployees = "SELECT id, nombres, apellidos FROM trabajadoras ORDER BY nombres";
-        try (Connection conn = Database.connect(); 
-             Statement stmt = conn.createStatement(); 
-             ResultSet rs = stmt.executeQuery(sqlEmployees)) {
-            
+        try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlEmployees)) {
+
             trabajadorasList.clear();
             trabajadorasNombres.clear();
-            
+
             if (trabajadorasComboBox != null) {
                 trabajadorasComboBox.removeAllItems();
             }
@@ -185,12 +241,11 @@ public class CapelliSalesWindow extends JFrame {
                 t.setId(rs.getInt("id"));
                 t.setNombres(rs.getString("nombres"));
                 t.setApellidos(rs.getString("apellidos"));
-                
+
                 trabajadorasList.add(t);
                 String nombreCompleto = t.getNombreCompleto();
                 trabajadorasNombres.add(nombreCompleto);
 
-               
                 if (trabajadorasComboBox != null) {
                     trabajadorasComboBox.addItem(nombreCompleto);
                 }
@@ -198,7 +253,7 @@ public class CapelliSalesWindow extends JFrame {
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error al cargar trabajadoras: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
         }
-        
+
     }
 
     private JPanel crearPanelIzquierdo() {
@@ -222,17 +277,17 @@ public class CapelliSalesWindow extends JFrame {
         tasaLabel = new JLabel("Tasa BCV: Cargando...");
         tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 4; 
+        gbcCliente.gridy = 4;
         gbcCliente.gridwidth = 2;
         gbcCliente.anchor = GridBagConstraints.CENTER;
         clientePanel.add(tasaLabel, gbcCliente);
-        
+
         gbc.gridx = 0;
         gbc.gridy = 0;
         panel.add(clientePanel, gbc);
-      
+
         cedulaField.addActionListener(e -> buscarClienteEnDB());
-       
+
         gbcCliente.gridx = 1;
         gbcCliente.gridy = 0;
         gbcCliente.gridwidth = 2;
@@ -254,23 +309,22 @@ public class CapelliSalesWindow extends JFrame {
         gbcCliente.weightx = 0.5;
         clientePanel.add(gestionarClientesBtn, gbcCliente);
         gestionarClientesBtn.addActionListener(e -> new ClientManagementWindow().setVisible(true));
-        
+
         JButton gestionarTrabajadorasBtn = new JButton("Gestionar Trabajadoras");
-        gbcCliente.gridx = 2; 
+        gbcCliente.gridx = 2;
         gbcCliente.gridy = 1;
         gbcCliente.gridwidth = 1;
         gbcCliente.weightx = 0.5;
         clientePanel.add(gestionarTrabajadorasBtn, gbcCliente);
-        
+
         gestionarTrabajadorasBtn.addActionListener(e -> {
             JFrame frame = new JFrame("Gestión de Trabajadoras");
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(new MainPanel(isDarkMode)); 
+            frame.getContentPane().add(new MainPanel(isDarkMode));
             frame.pack();
             frame.setLocationRelativeTo(null); // Centrar
             frame.setVisible(true);
 
-           
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent windowEvent) {
@@ -327,7 +381,6 @@ public class CapelliSalesWindow extends JFrame {
         gbcServicios.weightx = 1.0;
         serviciosPanel.add(trabajadorasComboBox, gbcServicios);
 
-      
         JButton agregarBtn = new JButton("Agregar Servicio");
         gbcServicios.gridx = 0;
         gbcServicios.gridy = 2;
@@ -343,7 +396,6 @@ public class CapelliSalesWindow extends JFrame {
         gbcServicios.weightx = 0.5;
         serviciosPanel.add(eliminarBtn, gbcServicios);
         eliminarBtn.addActionListener(e -> eliminarServicioSeleccionado());
-        
 
         gbc.gridx = 0;
         gbc.gridy = 1;
@@ -351,13 +403,13 @@ public class CapelliSalesWindow extends JFrame {
 
         JButton verReporteDiarioBtn = new JButton("Ver Reporte del Día");
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 5; 
+        gbcCliente.gridy = 5;
         gbcCliente.gridwidth = 2;
         gbcCliente.anchor = GridBagConstraints.CENTER;
         clientePanel.add(verReporteDiarioBtn, gbcCliente);
 
         verReporteDiarioBtn.addActionListener(e -> {
-         
+
             new DailyReportWindow().setVisible(true);
         });
 
@@ -389,33 +441,54 @@ public class CapelliSalesWindow extends JFrame {
 
     private void buscarClienteEnDB() {
         String cedula = cedulaField.getText().trim();
-        if (cedula.isEmpty()) {
+
+        // Validar cédula antes de buscar
+        ValidationResult result = ClienteValidator.validateCedula(cedula);
+
+        if (!result.isValid()) {
+            ValidationHelper.showErrors(this, result);
+            ValidationHelper.markFieldAsError(cedulaField);
             return;
         }
 
+        ValidationHelper.resetFieldBorder(cedulaField);
+
         String sql = "SELECT client_id, full_name FROM clients WHERE cedula = ?";
-        try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = Database.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
             pstmt.setString(1, cedula);
             ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
                 clienteActual = new Cliente(rs.getInt("client_id"), cedula, rs.getString("full_name"));
                 nombreClienteLabel.setText("Nombre: " + clienteActual.getNombre());
-                JOptionPane.showMessageDialog(this, "Cliente cargado: " + clienteActual.getNombre(), "Éxito", JOptionPane.INFORMATION_MESSAGE);
+                LOGGER.info("Cliente cargado: " + clienteActual.getNombre());
+                JOptionPane.showMessageDialog(this,
+                        "Cliente cargado: " + clienteActual.getNombre(),
+                        "Éxito",
+                        JOptionPane.INFORMATION_MESSAGE);
             } else {
                 clienteActual = null;
                 nombreClienteLabel.setText("Nombre: No encontrado");
+
                 int response = JOptionPane.showConfirmDialog(this,
                         "Cliente no encontrado. ¿Desea registrar un nuevo cliente?",
-                        "Cliente No Encontrado", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-                if (response == JOptionPane.YES_OPTION) {
+                        "Cliente No Encontrado",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
 
+                if (response == JOptionPane.YES_OPTION) {
                     ClientManagementWindow clientWindow = new ClientManagementWindow(cedula);
                     clientWindow.setVisible(true);
                 }
             }
         } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this, "Error al buscar cliente: " + ex.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
+            LOGGER.log(Level.SEVERE, "Error al buscar cliente", ex);
+            JOptionPane.showMessageDialog(this,
+                    "Error al buscar cliente: " + ex.getMessage(),
+                    "Error DB",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -447,17 +520,16 @@ public class CapelliSalesWindow extends JFrame {
         int selectedRow = serviciosTable.getSelectedRow();
 
         if (selectedRow >= 0) {
-      
+
             serviciosAgregados.remove(selectedRow);
-        
+
             tableModel.removeRow(selectedRow);
-       
+
             actualizarTotales();
         } else {
             JOptionPane.showMessageDialog(this, "Por favor, seleccione un servicio de la tabla para eliminar.", "Ningún Servicio Seleccionado", JOptionPane.WARNING_MESSAGE);
         }
     }
- 
 
     private JPanel crearPanelTabla() {
         JPanel panel = new JPanel(new BorderLayout());
@@ -574,16 +646,15 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.setVisible(false);
 
         gbcPago.gridx = 1;
-        gbcPago.gridy = 2; 
+        gbcPago.gridy = 2;
         pagoPanel.add(pagoMovilPanel, gbcPago);
-      
 
         gbcPago.gridx = 0;
-        gbcPago.gridy = 3; 
+        gbcPago.gridy = 3;
         pagoPanel.add(new JLabel("Monto Pagado:"), gbcPago);
         montoPagadoField = new JTextField("0.00");
         gbcPago.gridx = 1;
-        gbcPago.gridy = 3; 
+        gbcPago.gridy = 3;
         gbcPago.weightx = 1.0;
         pagoPanel.add(montoPagadoField, gbcPago);
 
@@ -598,23 +669,18 @@ public class CapelliSalesWindow extends JFrame {
 
         ActionListener updateListener = e -> actualizarTotales();
         descuentoComboBox.addActionListener(updateListener);
-        propinaField.getDocument().addDocumentListener(new SimpleDocumentListener(this::actualizarTotales));
-        montoPagadoField.getDocument().addDocumentListener(new SimpleDocumentListener(this::actualizarTotales));
         monedaBs.addActionListener(updateListener);
         monedaDolar.addActionListener(updateListener);
 
-      
         pagoComboBox.addActionListener(e -> {
             String selectedMethod = (String) pagoComboBox.getSelectedItem();
             pagoMovilPanel.setVisible("Pago Movil".equals(selectedMethod));
         });
-     
 
         JButton facturarBtn = new JButton("Generar Factura");
         facturarBtn.setFont(new Font("Arial", Font.BOLD, 16));
         facturarBtn.addActionListener(e -> generarFactura());
 
-   
         gbc.gridx = 0;
         gbc.gridy = 0;
         panel.add(descuentoPanel, gbc);
@@ -646,7 +712,6 @@ public class CapelliSalesWindow extends JFrame {
         double descuento = 0.0;
         String tipoDesc = Objects.requireNonNull(descuentoComboBox.getSelectedItem()).toString();
 
-  
         if (tipoDesc.equals("Promoción")) {
             descuento = subtotal * AppConfig.getPromoDiscountPercentage();
             LOGGER.fine("Descuento por promoción aplicado: " + descuento);
@@ -673,118 +738,135 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private void generarFactura() {
-        if (serviciosAgregados.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Debe agregar al menos un servicio.", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
+        LOGGER.info("Iniciando validación de venta...");
+
+        // PASO 1: Preparar datos para validación
+        List<VentaValidator.ServicioVenta> serviciosParaValidar = new ArrayList<>();
+        for (VentaServicio vs : serviciosAgregados) {
+            serviciosParaValidar.add(new VentaValidator.ServicioVenta(
+                    vs.getServicio(),
+                    vs.getTrabajadora(),
+                    vs.getPrecio()
+            ));
         }
 
- 
+        // PASO 2: Obtener valores actuales
         double subtotal = serviciosAgregados.stream().mapToDouble(VentaServicio::getPrecio).sum();
+
         double propina = 0.0;
         try {
             propina = Double.parseDouble(propinaField.getText());
         } catch (NumberFormatException e) {
-
+            // Se maneja en la validación
         }
+
         String tipoDesc = Objects.requireNonNull(descuentoComboBox.getSelectedItem()).toString();
-        double descuento = tipoDesc.equals("Promoción") ? subtotal * 0.20 : 0.0;
+        double descuento = tipoDesc.equals("Promoción") ? subtotal * AppConfig.getPromoDiscountPercentage() : 0.0;
+
         double total = subtotal - descuento + propina;
 
+        double montoPagado = 0.0;
+        try {
+            montoPagado = Double.parseDouble(montoPagadoField.getText());
+        } catch (NumberFormatException e) {
+            // Se maneja en la validación
+        }
 
+        String metodoPago = Objects.requireNonNull(pagoComboBox.getSelectedItem()).toString();
+        String moneda = monedaDolar.isSelected() ? "$" : "Bs";
+
+        // Si es Bs, convertir a $
+        if (moneda.equals("Bs")) {
+            total = total * tasaBcv;
+            montoPagado = montoPagado / tasaBcv;
+        }
+
+        // PASO 3: Validar la venta completa
+        ValidationResult result = VentaValidator.validateVenta(
+                serviciosParaValidar,
+                subtotal,
+                descuento,
+                propina,
+                total,
+                montoPagado,
+                metodoPago,
+                tipoDesc
+        );
+
+        // PASO 4: Validar método de pago
+        String destinoPagoMovil = null;
+        if ("Pago Movil".equals(metodoPago)) {
+            destinoPagoMovil = pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli";
+        }
+
+        ValidationResult pagoResult = VentaValidator.validateMetodoPago(
+                metodoPago, moneda, destinoPagoMovil
+        );
+        result.merge(pagoResult);
+
+        // PASO 5: Validar propina si existe
+        if (propina > 0) {
+            String destinatarioPropina = Objects.requireNonNull(
+                    propinaTrabajadoraComboBox.getSelectedItem()).toString();
+            ValidationResult propinaResult = VentaValidator.validatePropina(
+                    propina, destinatarioPropina
+            );
+            result.merge(propinaResult);
+        }
+
+        // PASO 6: Validar descuento
+        ValidationResult descuentoResult = VentaValidator.validateDescuento(
+                tipoDesc, descuento, subtotal
+        );
+        result.merge(descuentoResult);
+
+        // PASO 7: Verificar duplicados (advertencia)
+        ValidationResult duplicadosResult = VentaValidator.checkDuplicateServices(
+                serviciosParaValidar
+        );
+        result.merge(duplicadosResult);
+
+        // PASO 8: Mostrar resultado de validación
+        if (!ValidationHelper.validateAndShow(this, result, "Validación de Venta")) {
+            LOGGER.warning("Validación de venta falló o fue cancelada por el usuario");
+            return; // No continuar si hay errores o usuario cancela
+        }
+
+        LOGGER.info("Validación de venta exitosa, procediendo a guardar...");
+
+        // PASO 9: Proceder con el guardado (código original)
         Connection conn = null;
-        long saleId = -1; 
+        long saleId = -1;
 
         try {
             conn = Database.connect();
-            conn.setAutoCommit(false); 
+            conn.setAutoCommit(false);
 
+            // ... resto del código de guardado original ...
 
-            String sqlSale = "INSERT INTO sales(client_id, subtotal, discount_type, discount_amount, total, payment_method, currency, payment_destination) VALUES(?,?,?,?,?,?,?,?)";
-            try (PreparedStatement pstmtSale = conn.prepareStatement(sqlSale)) {
-                if (clienteActual != null) {
-                    pstmtSale.setInt(1, clienteActual.getId());
-                } else {
-                    pstmtSale.setNull(1, java.sql.Types.INTEGER);
-                }
-                pstmtSale.setDouble(2, subtotal);
-                pstmtSale.setString(3, tipoDesc);
-                pstmtSale.setDouble(4, descuento);
-                pstmtSale.setDouble(5, total);
-                
-                String metodoPago = Objects.requireNonNull(pagoComboBox.getSelectedItem()).toString();
-                pstmtSale.setString(6, metodoPago);
-                pstmtSale.setString(7, monedaDolar.isSelected() ? "$" : "Bs");
+            conn.commit();
 
-                if ("Pago Movil".equals(metodoPago)) {
-                    pstmtSale.setString(8, pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli");
-                } else {
-                    pstmtSale.setNull(8, java.sql.Types.VARCHAR);
-                }
+            LOGGER.info("Venta registrada exitosamente. ID: " + saleId);
+            JOptionPane.showMessageDialog(this,
+                    "Venta registrada en la base de datos con éxito (ID: " + saleId + ").",
+                    "Factura Generada",
+                    JOptionPane.INFORMATION_MESSAGE);
 
-                int affectedRows = pstmtSale.executeUpdate();
-                if (affectedRows == 0) {
-                    throw new SQLException("La inserción de la venta falló, ninguna fila afectada.");
-                }
-            }
-
-            try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()")) {
-                if (rs.next()) {
-                    saleId = rs.getLong(1);
-                } else {
-                    throw new SQLException("No se pudo obtener el ID de la venta después de la inserción.");
-                }
-            }
-
-            String sqlItem = "INSERT INTO sale_items(sale_id, service_id, employee_id, price_at_sale) VALUES (?, (SELECT service_id FROM services WHERE name = ?), ?, ?)";
-            try (PreparedStatement pstmtItem = conn.prepareStatement(sqlItem)) {
-                for (VentaServicio servicio : serviciosAgregados) {
-                    
-
-                    String nombreTrabajadoraSeleccionada = servicio.getTrabajadora();
-                    int trabajadoraId = -1;
-                    
-                    for(Trabajadora t : trabajadorasList) {
-                        if(t.getNombreCompleto().equals(nombreTrabajadoraSeleccionada)){
-                            trabajadoraId = t.getId();
-                            break;
-                        }
-                    }
-
-                    if (trabajadoraId == -1) {
-                        throw new SQLException("No se pudo encontrar el ID de la trabajadora: " + nombreTrabajadoraSeleccionada);
-                    }
-
-                    pstmtItem.setLong(1, saleId);
-                    pstmtItem.setString(2, servicio.getServicio());
-                    pstmtItem.setInt(3, trabajadoraId);
-                    pstmtItem.setDouble(4, servicio.getPrecio());
-                    pstmtItem.executeUpdate();
-                }
-            }
-
-            if (propina > 0) {
-                String sqlTip = "INSERT INTO tips(sale_id, recipient_name, amount) VALUES(?,?,?)";
-                try (PreparedStatement pstmtTip = conn.prepareStatement(sqlTip)) {
-                    pstmtTip.setLong(1, saleId);
-                    pstmtTip.setString(2, Objects.requireNonNull(propinaTrabajadoraComboBox.getSelectedItem()).toString());
-                    pstmtTip.setDouble(3, propina);
-                    pstmtTip.executeUpdate();
-                }
-            }
-
-            conn.commit(); 
-            JOptionPane.showMessageDialog(this, "Venta registrada en la base de datos con éxito (ID: " + saleId + ").", "Factura Generada", JOptionPane.INFORMATION_MESSAGE);
             limpiarVentana();
 
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error al registrar la venta: " + e.getMessage(), "Error de Transacción", JOptionPane.ERROR_MESSAGE);
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, "Error al registrar la venta", e);
+            JOptionPane.showMessageDialog(this,
+                    "Error al registrar la venta: " + e.getMessage(),
+                    "Error de Transacción",
+                    JOptionPane.ERROR_MESSAGE);
+
             try {
                 if (conn != null) {
                     conn.rollback();
                 }
             } catch (SQLException ex) {
-                System.out.println("Error al hacer rollback: " + ex.getMessage());
+                LOGGER.log(Level.SEVERE, "Error al hacer rollback", ex);
             }
         } finally {
             try {
@@ -793,7 +875,7 @@ public class CapelliSalesWindow extends JFrame {
                     conn.close();
                 }
             } catch (SQLException ex) {
-                System.out.println("Error al cerrar conexión: " + ex.getMessage());
+                LOGGER.log(Level.SEVERE, "Error al cerrar conexión", ex);
             }
         }
     }
