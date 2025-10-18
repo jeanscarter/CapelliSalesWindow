@@ -454,8 +454,7 @@ public class CapelliSalesWindow extends JFrame {
         ValidationHelper.resetFieldBorder(cedulaField);
 
         String sql = "SELECT client_id, full_name FROM clients WHERE cedula = ?";
-        try (Connection conn = Database.connect();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, cedula);
             ResultSet rs = pstmt.executeQuery();
@@ -772,13 +771,20 @@ public class CapelliSalesWindow extends JFrame {
             // Se maneja en la validación
         }
 
-        String metodoPago = Objects.requireNonNull(pagoComboBox.getSelectedItem()).toString();
+        String metodoPago = pagoComboBox.getSelectedItem() != null
+                ? pagoComboBox.getSelectedItem().toString()
+                : "";
+
         String moneda = monedaDolar.isSelected() ? "$" : "Bs";
 
-        // Si es Bs, convertir a $
+        // Variables para conversión
+        double totalEnDolares = total;
+        double montoPagadoEnDolares = montoPagado;
+
+        // Si es Bs, convertir a $ para almacenar en BD
         if (moneda.equals("Bs")) {
-            total = total * tasaBcv;
-            montoPagado = montoPagado / tasaBcv;
+            totalEnDolares = total / tasaBcv;
+            montoPagadoEnDolares = montoPagado / tasaBcv;
         }
 
         // PASO 3: Validar la venta completa
@@ -787,8 +793,8 @@ public class CapelliSalesWindow extends JFrame {
                 subtotal,
                 descuento,
                 propina,
-                total,
-                montoPagado,
+                totalEnDolares,
+                montoPagadoEnDolares,
                 metodoPago,
                 tipoDesc
         );
@@ -806,8 +812,9 @@ public class CapelliSalesWindow extends JFrame {
 
         // PASO 5: Validar propina si existe
         if (propina > 0) {
-            String destinatarioPropina = Objects.requireNonNull(
-                    propinaTrabajadoraComboBox.getSelectedItem()).toString();
+            String destinatarioPropina = propinaTrabajadoraComboBox.getSelectedItem() != null
+                    ? propinaTrabajadoraComboBox.getSelectedItem().toString()
+                    : "";
             ValidationResult propinaResult = VentaValidator.validatePropina(
                     propina, destinatarioPropina
             );
@@ -834,7 +841,7 @@ public class CapelliSalesWindow extends JFrame {
 
         LOGGER.info("Validación de venta exitosa, procediendo a guardar...");
 
-        // PASO 9: Proceder con el guardado (código original)
+        // PASO 9: Proceder con el guardado
         Connection conn = null;
         long saleId = -1;
 
@@ -842,42 +849,246 @@ public class CapelliSalesWindow extends JFrame {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            // ... resto del código de guardado original ...
+            // ========================================
+            // 1. INSERTAR LA VENTA PRINCIPAL
+            // ========================================
+            String sqlSale = "INSERT INTO sales (client_id, subtotal, discount_type, "
+                    + "discount_amount, total, payment_method, currency, payment_destination) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlSale, Statement.RETURN_GENERATED_KEYS)) {
+                // Client ID (puede ser null si no hay cliente seleccionado)
+                if (clienteActual != null) {
+                    pstmt.setInt(1, clienteActual.getId());
+                } else {
+                    pstmt.setNull(1, java.sql.Types.INTEGER);
+                }
+
+                // Montos (siempre en dólares)
+                pstmt.setDouble(2, subtotal);
+                pstmt.setString(3, tipoDesc);
+                pstmt.setDouble(4, descuento);
+                pstmt.setDouble(5, totalEnDolares);
+
+                // Método de pago
+                pstmt.setString(6, metodoPago);
+                pstmt.setString(7, moneda);
+
+                // Destino de pago móvil (puede ser null)
+                if (destinoPagoMovil != null) {
+                    pstmt.setString(8, destinoPagoMovil);
+                } else {
+                    pstmt.setNull(8, java.sql.Types.VARCHAR);
+                }
+
+                pstmt.executeUpdate();
+
+                // Obtener el ID generado
+                ResultSet rs = pstmt.getGeneratedKeys();
+                if (rs.next()) {
+                    saleId = rs.getLong(1);
+                    LOGGER.info("Venta insertada con ID: " + saleId);
+                } else {
+                    throw new SQLException("Error al obtener el ID de la venta generada");
+                }
+            }
+
+            // ========================================
+            // 2. INSERTAR LOS ITEMS DE LA VENTA
+            // ========================================
+            String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale) "
+                    + "VALUES (?, ?, ?, ?)";
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlItems)) {
+                for (VentaServicio vs : serviciosAgregados) {
+                    // Obtener service_id
+                    int serviceId = getServiceId(vs.getServicio(), conn);
+
+                    // Obtener employee_id
+                    int employeeId = getEmployeeIdByName(vs.getTrabajadora(), conn);
+
+                    pstmt.setLong(1, saleId);
+                    pstmt.setInt(2, serviceId);
+                    pstmt.setInt(3, employeeId);
+                    pstmt.setDouble(4, vs.getPrecio());
+
+                    pstmt.addBatch();
+                }
+
+                int[] batchResults = pstmt.executeBatch();
+                LOGGER.info("Items de venta insertados: " + batchResults.length);
+            }
+
+            // ========================================
+            // 3. INSERTAR PROPINA SI EXISTE
+            // ========================================
+            if (propina > 0) {
+                String sqlTip = "INSERT INTO tips (sale_id, recipient_name, amount) VALUES (?, ?, ?)";
+
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlTip)) {
+                    String destinatarioPropina = propinaTrabajadoraComboBox.getSelectedItem() != null
+                            ? propinaTrabajadoraComboBox.getSelectedItem().toString()
+                            : "Salón";
+
+                    pstmt.setLong(1, saleId);
+                    pstmt.setString(2, destinatarioPropina);
+                    pstmt.setDouble(3, propina);
+
+                    pstmt.executeUpdate();
+                    LOGGER.info("Propina insertada: $" + propina + " para " + destinatarioPropina);
+                }
+            }
+
+            // ========================================
+            // 4. COMMIT DE LA TRANSACCIÓN
+            // ========================================
             conn.commit();
 
             LOGGER.info("Venta registrada exitosamente. ID: " + saleId);
+
+            // Mostrar mensaje de éxito
+            String mensajeExito = construirMensajeExito(saleId, totalEnDolares, moneda,
+                    montoPagadoEnDolares, tasaBcv);
             JOptionPane.showMessageDialog(this,
-                    "Venta registrada en la base de datos con éxito (ID: " + saleId + ").",
-                    "Factura Generada",
+                    mensajeExito,
+                    "✅ Factura Generada Exitosamente",
                     JOptionPane.INFORMATION_MESSAGE);
 
+            // Limpiar la ventana para nueva venta
             limpiarVentana();
 
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error al registrar la venta", e);
-            JOptionPane.showMessageDialog(this,
-                    "Error al registrar la venta: " + e.getMessage(),
-                    "Error de Transacción",
-                    JOptionPane.ERROR_MESSAGE);
 
+            // Hacer rollback en caso de error
             try {
                 if (conn != null) {
                     conn.rollback();
+                    LOGGER.info("Rollback ejecutado exitosamente");
                 }
             } catch (SQLException ex) {
                 LOGGER.log(Level.SEVERE, "Error al hacer rollback", ex);
             }
+
+            // Mostrar mensaje de error detallado
+            String mensajeError = "Error al registrar la venta en la base de datos:\n\n"
+                    + e.getMessage() + "\n\n"
+                    + "Por favor, verifique los datos e intente nuevamente.";
+
+            JOptionPane.showMessageDialog(this,
+                    mensajeError,
+                    "❌ Error de Transacción",
+                    JOptionPane.ERROR_MESSAGE);
+
         } finally {
+            // Cerrar la conexión
             try {
                 if (conn != null) {
                     conn.setAutoCommit(true);
                     conn.close();
+                    LOGGER.fine("Conexión a BD cerrada");
                 }
             } catch (SQLException ex) {
                 LOGGER.log(Level.SEVERE, "Error al cerrar conexión", ex);
             }
         }
+    }
+
+    /**
+     * Obtiene el ID de un servicio por su nombre.
+     *
+     * @param serviceName Nombre del servicio
+     * @param conn Conexión a la base de datos
+     * @return ID del servicio
+     * @throws SQLException si el servicio no existe
+     */
+    private int getServiceId(String serviceName, Connection conn) throws SQLException {
+        String sql = "SELECT service_id FROM services WHERE name = ?";
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, serviceName);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                int serviceId = rs.getInt("service_id");
+                LOGGER.fine("Service ID encontrado: " + serviceId + " para servicio: " + serviceName);
+                return serviceId;
+            } else {
+                LOGGER.severe("Servicio no encontrado en BD: " + serviceName);
+                throw new SQLException("Servicio no encontrado en la base de datos: " + serviceName);
+            }
+        }
+    }
+
+    /**
+     * Obtiene el ID de una trabajadora por su nombre completo.
+     */
+    private int getEmployeeIdByName(String nombreCompleto, Connection conn) throws SQLException {
+        // El nombre completo viene en formato "Nombres Apellidos"
+        String[] partes = nombreCompleto.trim().split("\\s+", 2);
+
+        if (partes.length < 2) {
+            throw new SQLException("Formato de nombre inválido: " + nombreCompleto
+                    + ". Se esperaba 'Nombres Apellidos'");
+        }
+
+        String nombres = partes[0];
+        String apellidos = partes[1];
+
+        String sql = "SELECT id FROM trabajadoras WHERE nombres = ? AND apellidos = ?";
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombres);
+            pstmt.setString(2, apellidos);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                return rs.getInt("id");
+            } else {
+                throw new SQLException("Trabajadora no encontrada: " + nombreCompleto
+                        + " (nombres: '" + nombres + "', apellidos: '" + apellidos + "')");
+            }
+        }
+    }
+
+    /**
+     * Construye un mensaje de éxito con los detalles de la venta.
+     */
+    private String construirMensajeExito(long saleId, double total, String moneda,
+            double montoPagado, double tasaBcv) {
+        DecimalFormat df = new DecimalFormat("#,##0.00");
+
+        StringBuilder mensaje = new StringBuilder();
+        mensaje.append("Venta registrada exitosamente\n\n");
+        mensaje.append("═══════════════════════════════════\n");
+        mensaje.append("ID de Venta: ").append(saleId).append("\n");
+        mensaje.append("───────────────────────────────────\n");
+
+        if (moneda.equals("$")) {
+            mensaje.append("Total: $").append(df.format(total)).append("\n");
+            mensaje.append("Pagado: $").append(df.format(montoPagado)).append("\n");
+
+            double vuelto = montoPagado - total;
+            if (vuelto > 0) {
+                mensaje.append("Vuelto: $").append(df.format(vuelto)).append("\n");
+            }
+        } else {
+            // Mostrar en Bs
+            mensaje.append("Total: Bs ").append(df.format(total * tasaBcv)).append("\n");
+            mensaje.append("Pagado: Bs ").append(df.format(montoPagado * tasaBcv)).append("\n");
+
+            double vuelto = (montoPagado * tasaBcv) - (total * tasaBcv);
+            if (vuelto > 0) {
+                mensaje.append("Vuelto: Bs ").append(df.format(vuelto)).append("\n");
+            }
+
+            mensaje.append("\n(Equivalente en $: ").append(df.format(total)).append(")\n");
+        }
+
+        mensaje.append("═══════════════════════════════════\n");
+        mensaje.append("\n¡Gracias por usar el sistema Capelli!");
+
+        return mensaje.toString();
     }
 
     private void limpiarVentana() {
