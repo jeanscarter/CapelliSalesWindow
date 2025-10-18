@@ -1,5 +1,6 @@
 package com.capelli.reports;
 
+import com.capelli.capellisaleswindow.BCVService;
 import com.capelli.database.Database;
 import com.formdev.flatlaf.FlatDarkLaf;
 import java.awt.Font;
@@ -20,9 +21,13 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.UIManager;
 import net.miginfocom.swing.MigLayout;
+import com.capelli.config.AppConfig;
+import java.util.logging.Logger;
+import java.util.logging.Level;
 
 public class DailyReportWindow extends JFrame {
 
+    private static final Logger LOGGER = Logger.getLogger(DailyReportWindow.class.getName());
     private final JLabel reportDateLabel;
     private final JLabel cashUsdLabel;
     private final JLabel posAndMobilePaymentBsLabel;
@@ -32,7 +37,7 @@ public class DailyReportWindow extends JFrame {
     private final JLabel othersLabel;
 
     private final DecimalFormat currencyFormat = new DecimalFormat("#,##0.00");
-    private final double bcvRate = 36.5; 
+    private double bcvRate = AppConfig.getDefaultBcvRate();
 
     public DailyReportWindow() {
         setTitle("Reporte Diario de Operaciones - Capelli");
@@ -40,6 +45,7 @@ public class DailyReportWindow extends JFrame {
         setSize(550, 400);
         setLocationRelativeTo(null);
         setResizable(false);
+        loadBcvRate();
 
         String today = new SimpleDateFormat("dd/MM/yyyy").format(new Date());
         reportDateLabel = new JLabel("Mostrando reporte para la fecha: " + today);
@@ -84,6 +90,31 @@ public class DailyReportWindow extends JFrame {
         
         loadReportData();
     }
+    
+    private void loadBcvRate() {
+    SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
+        @Override
+        protected Double doInBackground() throws Exception {
+            return BCVService.getBCVRateSafe();
+        }
+
+        @Override
+        protected void done() {
+            try {
+                double rate = get();
+                if (rate > 0) {
+                    bcvRate = rate;
+                    LOGGER.info("Tasa BCV actualizada en reporte diario: " + rate);
+                    // Recargar datos con nueva tasa
+                    loadReportData();
+                }
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error al cargar tasa BCV para reporte", e);
+            }
+        }
+    };
+    worker.execute();
+}
 
     private void loadReportData() {
         setLabelsToLoading();

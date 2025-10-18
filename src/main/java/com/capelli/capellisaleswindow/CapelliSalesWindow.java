@@ -29,16 +29,21 @@ import java.util.Map;
 import java.util.Objects;
 import javax.imageio.ImageIO;
 import javax.swing.event.TableModelEvent;
+import com.capelli.config.AppConfig;
+import java.io.InputStream;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class CapelliSalesWindow extends JFrame {
 
+    private static final Logger LOGGER = Logger.getLogger(CapelliSalesWindow.class.getName());
     private Map<String, Double> preciosServicios = new HashMap<>();
     private List<String> trabajadorasNombres = new ArrayList<>();
     private List<Trabajadora> trabajadorasList = new ArrayList<>();
-    private final List<String> tiposDescuento = new ArrayList<>(Arrays.asList("Ninguno", "Promoción", "Intercambio", "Cuenta por pagar", "Cuenta por Cobrar"));
-    private final List<String> metodosPago = new ArrayList<>(Arrays.asList("TD", "TC", "Pago Movil", "Efectivo $", "Efectivo Bs", "Transferencia"));
-    private final List<String> serviciosConMultiplesTrabajadoras = Arrays.asList("Mechas", "Extensiones", "Mantenimiento de Extensiones");
-    private double tasaBcv = 200; 
+    private final List<String> tiposDescuento = new ArrayList<>(Arrays.asList(AppConfig.getDiscountTypes()));
+    private final List<String> metodosPago = new ArrayList<>(Arrays.asList(AppConfig.getPaymentMethods()));
+    private final List<String> serviciosConMultiplesTrabajadoras = Arrays.asList(AppConfig.getMultipleWorkerServices());
+    private double tasaBcv = AppConfig.getDefaultBcvRate();
 
     private boolean isDarkMode = true; 
 
@@ -67,13 +72,18 @@ public class CapelliSalesWindow extends JFrame {
     private Cliente clienteActual = null;
 
     public CapelliSalesWindow() {
-        super("Ventana de Ventas - Salón de Belleza Capelli");
+        super(AppConfig.getAppTitle());
 
-        String rutaImagen = "C:\\Users\\Jean C. Gutierrez\\Documents\\NetBeansProjects\\CapelliSalesWindow\\src\\main\\java\\com\\capelli\\capellisaleswindow\\image\\Logo.png";
         try {
-            setIconImage(ImageIO.read(new File(rutaImagen)));
+            InputStream iconStream = getClass().getResourceAsStream(AppConfig.getIconPath());
+            if (iconStream != null) {
+                setIconImage(ImageIO.read(iconStream));
+                LOGGER.info("Icono de aplicación cargado correctamente");
+            } else {
+                LOGGER.warning("No se pudo cargar el icono de la aplicación");
+            }
         } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.WARNING, "Error al cargar icono de aplicación", e);
         }
 
     
@@ -113,9 +123,10 @@ public class CapelliSalesWindow extends JFrame {
         cargarDatosDesdeDB();
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1200, 800);
-        setLocationRelativeTo(null);
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        setSize(AppConfig.getDefaultWindowWidth(), AppConfig.getDefaultWindowHeight());
+        if (AppConfig.isMaximizedByDefault()) {
+            setExtendedState(JFrame.MAXIMIZED_BOTH);
+        }
 
         JPanel mainPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -637,7 +648,8 @@ public class CapelliSalesWindow extends JFrame {
 
   
         if (tipoDesc.equals("Promoción")) {
-            descuento = subtotal * 0.20;
+            descuento = subtotal * AppConfig.getPromoDiscountPercentage();
+            LOGGER.fine("Descuento por promoción aplicado: " + descuento);
         }
 
         double total = subtotal - descuento + propina;
@@ -853,13 +865,28 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     public static void main(String[] args) {
+        LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");
+        AppConfig.printConfiguration(); // Para debug
+
         Database.initialize();
+
         try {
-            UIManager.setLookAndFeel(new FlatDarkLaf());
+            if (AppConfig.isDarkModeDefault()) {
+                UIManager.setLookAndFeel(new FlatDarkLaf());
+                LOGGER.info("Tema oscuro aplicado");
+            } else {
+                UIManager.setLookAndFeel(new FlatLightLaf());
+                LOGGER.info("Tema claro aplicado");
+            }
         } catch (Exception ex) {
-            System.err.println("Failed to initialize FlatLaf");
+            LOGGER.log(Level.SEVERE, "Error al inicializar Look and Feel", ex);
         }
-        SwingUtilities.invokeLater(() -> new CapelliSalesWindow().setVisible(true));
+
+        SwingUtilities.invokeLater(() -> {
+            CapelliSalesWindow window = new CapelliSalesWindow();
+            window.setVisible(true);
+            LOGGER.info("Ventana principal mostrada");
+        });
     }
 
     private static class SimpleDocumentListener implements javax.swing.event.DocumentListener {
