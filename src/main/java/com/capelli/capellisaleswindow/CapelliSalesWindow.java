@@ -30,10 +30,14 @@ import java.util.Objects;
 import javax.imageio.ImageIO;
 import javax.swing.event.TableModelEvent;
 import com.capelli.config.AppConfig;
+import com.capelli.database.ServiceDAO;
+import com.capelli.model.Service;
+import com.capelli.servicemanagement.ServiceManagementWindow;
 import java.io.InputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import com.capelli.validation.*;
+
 
 public class CapelliSalesWindow extends JFrame {
 
@@ -216,11 +220,20 @@ public class CapelliSalesWindow extends JFrame {
 
     private void cargarDatosDesdeDB() {
 
-        String sqlServices = "SELECT name, price FROM services";
+        String sqlServices = "SELECT name, price FROM services ORDER BY name"; 
         try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlServices)) {
             preciosServicios.clear();
+            
+            if (serviciosComboBox != null) {
+                serviciosComboBox.removeAllItems();
+            }
+
             while (rs.next()) {
-                preciosServicios.put(rs.getString("name"), rs.getDouble("price"));
+                String serviceName = rs.getString("name");
+                preciosServicios.put(serviceName, rs.getDouble("price"));
+                if (serviciosComboBox != null) {
+                    serviciosComboBox.addItem(serviceName);
+                }
             }
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error al cargar servicios: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
@@ -310,6 +323,23 @@ public class CapelliSalesWindow extends JFrame {
         clientePanel.add(gestionarClientesBtn, gbcCliente);
         gestionarClientesBtn.addActionListener(e -> new ClientManagementWindow().setVisible(true));
 
+        JButton gestionarServiciosBtn = new JButton("Gestionar Servicios");
+        gbcCliente.gridx = 2; 
+        gbcCliente.gridy = 2; 
+        gbcCliente.gridwidth = 1;
+        clientePanel.add(gestionarServiciosBtn, gbcCliente);
+
+        gestionarServiciosBtn.addActionListener(e -> {
+            ServiceManagementWindow serviceWindow = new ServiceManagementWindow();
+            serviceWindow.setVisible(true);
+            serviceWindow.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override
+                public void windowClosed(java.awt.event.WindowEvent windowEvent) {
+                    cargarDatosDesdeDB(); 
+                }
+            });
+        });
+
         JButton gestionarTrabajadorasBtn = new JButton("Gestionar Trabajadoras");
         gbcCliente.gridx = 2;
         gbcCliente.gridy = 1;
@@ -322,7 +352,7 @@ public class CapelliSalesWindow extends JFrame {
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
             frame.getContentPane().add(new MainPanel(isDarkMode));
             frame.pack();
-            frame.setLocationRelativeTo(null); // Centrar
+            frame.setLocationRelativeTo(null);
             frame.setVisible(true);
 
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
@@ -384,7 +414,7 @@ public class CapelliSalesWindow extends JFrame {
         JButton agregarBtn = new JButton("Agregar Servicio");
         gbcServicios.gridx = 0;
         gbcServicios.gridy = 2;
-        gbcServicios.gridwidth = 1; // Se ajusta a 1
+        gbcServicios.gridwidth = 1;
         gbcServicios.weightx = 0.5;
         serviciosPanel.add(agregarBtn, gbcServicios);
         agregarBtn.addActionListener(e -> agregarServicio());
@@ -441,27 +471,39 @@ public class CapelliSalesWindow extends JFrame {
 
     private void buscarClienteEnDB() {
         String cedula = cedulaField.getText().trim();
-
-        // Validar cédula antes de buscar
+    
         ValidationResult result = ClienteValidator.validateCedula(cedula);
-
+    
         if (!result.isValid()) {
             ValidationHelper.showErrors(this, result);
             ValidationHelper.markFieldAsError(cedulaField);
             return;
         }
-
+    
         ValidationHelper.resetFieldBorder(cedulaField);
-
-        String sql = "SELECT client_id, full_name FROM clients WHERE cedula = ?";
+    
+        // MODIFICADO: Se añade hair_type a la consulta
+        String sql = "SELECT client_id, full_name, hair_type FROM clients WHERE cedula = ?";
         try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
+    
             pstmt.setString(1, cedula);
             ResultSet rs = pstmt.executeQuery();
-
+    
             if (rs.next()) {
-                clienteActual = new Cliente(rs.getInt("client_id"), cedula, rs.getString("full_name"));
-                nombreClienteLabel.setText("Nombre: " + clienteActual.getNombre());
+                // MODIFICADO: Se crea el objeto Cliente con el nuevo dato
+                clienteActual = new Cliente(
+                    rs.getInt("client_id"), 
+                    cedula, 
+                    rs.getString("full_name"),
+                    rs.getString("hair_type") // <-- Se obtiene el dato
+                );
+                
+                // MODIFICADO: Se muestra el tipo de cabello para confirmación
+                String hairTypeInfo = clienteActual.getHairType();
+                String infoCliente = "Nombre: " + clienteActual.getNombre() + 
+                                     " (Cabello: " + (hairTypeInfo != null && !hairTypeInfo.isEmpty() ? hairTypeInfo : "No definido") + ")";
+                nombreClienteLabel.setText(infoCliente);
+                
                 LOGGER.info("Cliente cargado: " + clienteActual.getNombre());
                 JOptionPane.showMessageDialog(this,
                         "Cliente cargado: " + clienteActual.getNombre(),
@@ -470,13 +512,13 @@ public class CapelliSalesWindow extends JFrame {
             } else {
                 clienteActual = null;
                 nombreClienteLabel.setText("Nombre: No encontrado");
-
+    
                 int response = JOptionPane.showConfirmDialog(this,
                         "Cliente no encontrado. ¿Desea registrar un nuevo cliente?",
                         "Cliente No Encontrado",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
-
+    
                 if (response == JOptionPane.YES_OPTION) {
                     ClientManagementWindow clientWindow = new ClientManagementWindow(cedula);
                     clientWindow.setVisible(true);
@@ -492,26 +534,47 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private void agregarServicio() {
-        String servicio = (String) serviciosComboBox.getSelectedItem();
+        String nombreServicio = (String) serviciosComboBox.getSelectedItem();
         String trabajadora = (String) trabajadorasComboBox.getSelectedItem();
-        Double precioOriginal = preciosServicios.get(servicio);
 
-        boolean servicioYaAgregado = serviciosAgregados.stream().anyMatch(vs -> vs.getServicio().equals(servicio));
-        if (serviciosConMultiplesTrabajadoras.contains(servicio) && servicioYaAgregado) {
-            double precioDividido = precioOriginal / 2.0;
-            for (int i = 0; i < serviciosAgregados.size(); i++) {
-                if (serviciosAgregados.get(i).getServicio().equals(servicio)) {
-                    serviciosAgregados.get(i).setPrecio(precioDividido);
-                    tableModel.setValueAt(new DecimalFormat("#.##").format(precioDividido), i, 2);
-                    break;
-                }
-            }
-            serviciosAgregados.add(new VentaServicio(servicio, trabajadora, precioDividido));
-            tableModel.addRow(new Object[]{servicio, trabajadora, new DecimalFormat("#.##").format(precioDividido)});
-        } else {
-            serviciosAgregados.add(new VentaServicio(servicio, trabajadora, precioOriginal));
-            tableModel.addRow(new Object[]{servicio, trabajadora, new DecimalFormat("#.##").format(precioOriginal)});
+        if (nombreServicio == null) {
+            JOptionPane.showMessageDialog(this, "Por favor, seleccione un servicio.", "Servicio no seleccionado", JOptionPane.WARNING_MESSAGE);
+            return;
         }
+    
+        // 1. Obtener el objeto de servicio completo (con todos sus precios)
+        Service servicioCompleto = obtenerServicioPorNombre(nombreServicio);
+        if (servicioCompleto == null) {
+            JOptionPane.showMessageDialog(this, "Error: no se pudo cargar la información del servicio.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        
+        double precioFinal = servicioCompleto.getPrice_corto(); // Precio por defecto
+    
+        // 2. Lógica para seleccionar el precio basado en el tipo de cabello del cliente
+        if (clienteActual != null && clienteActual.getHairType() != null && !clienteActual.getHairType().isEmpty()) {
+            String tipoCabello = clienteActual.getHairType();
+            switch (tipoCabello) {
+                case "Mediano":
+                    // Si el precio para mediano es mayor a 0, úsalo. Si no, usa el de corto.
+                    precioFinal = servicioCompleto.getPrice_medio() > 0 ? servicioCompleto.getPrice_medio() : servicioCompleto.getPrice_corto();
+                    break;
+                case "Largo":
+                    precioFinal = servicioCompleto.getPrice_largo() > 0 ? servicioCompleto.getPrice_largo() : servicioCompleto.getPrice_corto();
+                    break;
+                // No se necesita 'default' porque el precio corto ya está asignado
+            }
+        }
+        
+        // Lógica para extensiones (si se detecta el servicio específico)
+        if (nombreServicio.toLowerCase().contains("extensiones")) {
+            precioFinal = servicioCompleto.getPrice_ext() > 0 ? servicioCompleto.getPrice_ext() : servicioCompleto.getPrice_corto();
+        }
+    
+        // 3. Agregar a la tabla con el precio calculado
+        serviciosAgregados.add(new VentaServicio(nombreServicio, trabajadora, precioFinal));
+        tableModel.addRow(new Object[]{nombreServicio, trabajadora, new DecimalFormat("#.##").format(precioFinal)});
+        
         actualizarTotales();
     }
 
@@ -519,11 +582,8 @@ public class CapelliSalesWindow extends JFrame {
         int selectedRow = serviciosTable.getSelectedRow();
 
         if (selectedRow >= 0) {
-
             serviciosAgregados.remove(selectedRow);
-
             tableModel.removeRow(selectedRow);
-
             actualizarTotales();
         } else {
             JOptionPane.showMessageDialog(this, "Por favor, seleccione un servicio de la tabla para eliminar.", "Ningún Servicio Seleccionado", JOptionPane.WARNING_MESSAGE);
@@ -662,7 +722,7 @@ public class CapelliSalesWindow extends JFrame {
         pagoPanel.add(new JLabel("Vuelto:"), gbcPago);
         vueltoLabel = new JLabel("0.00");
         gbcPago.gridx = 1;
-        gbcPago.gridy = 4; // Se ajusta el gridy
+        gbcPago.gridy = 4; 
         gbcPago.weightx = 1.0;
         pagoPanel.add(vueltoLabel, gbcPago);
 
@@ -739,7 +799,6 @@ public class CapelliSalesWindow extends JFrame {
     private void generarFactura() {
         LOGGER.info("Iniciando validación de venta...");
 
-        // PASO 1: Preparar datos para validación
         List<VentaValidator.ServicioVenta> serviciosParaValidar = new ArrayList<>();
         for (VentaServicio vs : serviciosAgregados) {
             serviciosParaValidar.add(new VentaValidator.ServicioVenta(
@@ -749,7 +808,6 @@ public class CapelliSalesWindow extends JFrame {
             ));
         }
 
-        // PASO 2: Obtener valores actuales
         double subtotal = serviciosAgregados.stream().mapToDouble(VentaServicio::getPrecio).sum();
 
         double propina = 0.0;
@@ -777,17 +835,14 @@ public class CapelliSalesWindow extends JFrame {
 
         String moneda = monedaDolar.isSelected() ? "$" : "Bs";
 
-        // Variables para conversión
         double totalEnDolares = total;
         double montoPagadoEnDolares = montoPagado;
 
-        // Si es Bs, convertir a $ para almacenar en BD
         if (moneda.equals("Bs")) {
             totalEnDolares = total / tasaBcv;
             montoPagadoEnDolares = montoPagado / tasaBcv;
         }
 
-        // PASO 3: Validar la venta completa
         ValidationResult result = VentaValidator.validateVenta(
                 serviciosParaValidar,
                 subtotal,
@@ -799,7 +854,6 @@ public class CapelliSalesWindow extends JFrame {
                 tipoDesc
         );
 
-        // PASO 4: Validar método de pago
         String destinoPagoMovil = null;
         if ("Pago Movil".equals(metodoPago)) {
             destinoPagoMovil = pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli";
@@ -810,7 +864,6 @@ public class CapelliSalesWindow extends JFrame {
         );
         result.merge(pagoResult);
 
-        // PASO 5: Validar propina si existe
         if (propina > 0) {
             String destinatarioPropina = propinaTrabajadoraComboBox.getSelectedItem() != null
                     ? propinaTrabajadoraComboBox.getSelectedItem().toString()
@@ -821,27 +874,23 @@ public class CapelliSalesWindow extends JFrame {
             result.merge(propinaResult);
         }
 
-        // PASO 6: Validar descuento
         ValidationResult descuentoResult = VentaValidator.validateDescuento(
                 tipoDesc, descuento, subtotal
         );
         result.merge(descuentoResult);
 
-        // PASO 7: Verificar duplicados (advertencia)
         ValidationResult duplicadosResult = VentaValidator.checkDuplicateServices(
                 serviciosParaValidar
         );
         result.merge(duplicadosResult);
 
-        // PASO 8: Mostrar resultado de validación
         if (!ValidationHelper.validateAndShow(this, result, "Validación de Venta")) {
             LOGGER.warning("Validación de venta falló o fue cancelada por el usuario");
-            return; // No continuar si hay errores o usuario cancela
+            return; 
         }
 
         LOGGER.info("Validación de venta exitosa, procediendo a guardar...");
 
-        // PASO 9: Proceder con el guardado
         Connection conn = null;
         long saleId = -1;
 
@@ -849,32 +898,25 @@ public class CapelliSalesWindow extends JFrame {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            // ========================================
-            // 1. INSERTAR LA VENTA PRINCIPAL
-            // ========================================
             String sqlSale = "INSERT INTO sales (client_id, subtotal, discount_type, "
                     + "discount_amount, total, payment_method, currency, payment_destination) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
             try (PreparedStatement pstmt = conn.prepareStatement(sqlSale, Statement.RETURN_GENERATED_KEYS)) {
-                // Client ID (puede ser null si no hay cliente seleccionado)
                 if (clienteActual != null) {
                     pstmt.setInt(1, clienteActual.getId());
                 } else {
                     pstmt.setNull(1, java.sql.Types.INTEGER);
                 }
 
-                // Montos (siempre en dólares)
                 pstmt.setDouble(2, subtotal);
                 pstmt.setString(3, tipoDesc);
                 pstmt.setDouble(4, descuento);
                 pstmt.setDouble(5, totalEnDolares);
 
-                // Método de pago
                 pstmt.setString(6, metodoPago);
                 pstmt.setString(7, moneda);
 
-                // Destino de pago móvil (puede ser null)
                 if (destinoPagoMovil != null) {
                     pstmt.setString(8, destinoPagoMovil);
                 } else {
@@ -883,7 +925,6 @@ public class CapelliSalesWindow extends JFrame {
 
                 pstmt.executeUpdate();
 
-                // Obtener el ID generado
                 ResultSet rs = pstmt.getGeneratedKeys();
                 if (rs.next()) {
                     saleId = rs.getLong(1);
@@ -893,18 +934,12 @@ public class CapelliSalesWindow extends JFrame {
                 }
             }
 
-            // ========================================
-            // 2. INSERTAR LOS ITEMS DE LA VENTA
-            // ========================================
             String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale) "
                     + "VALUES (?, ?, ?, ?)";
 
             try (PreparedStatement pstmt = conn.prepareStatement(sqlItems)) {
                 for (VentaServicio vs : serviciosAgregados) {
-                    // Obtener service_id
                     int serviceId = getServiceId(vs.getServicio(), conn);
-
-                    // Obtener employee_id
                     int employeeId = getEmployeeIdByName(vs.getTrabajadora(), conn);
 
                     pstmt.setLong(1, saleId);
@@ -919,9 +954,6 @@ public class CapelliSalesWindow extends JFrame {
                 LOGGER.info("Items de venta insertados: " + batchResults.length);
             }
 
-            // ========================================
-            // 3. INSERTAR PROPINA SI EXISTE
-            // ========================================
             if (propina > 0) {
                 String sqlTip = "INSERT INTO tips (sale_id, recipient_name, amount) VALUES (?, ?, ?)";
 
@@ -938,29 +970,20 @@ public class CapelliSalesWindow extends JFrame {
                     LOGGER.info("Propina insertada: $" + propina + " para " + destinatarioPropina);
                 }
             }
-
-            // ========================================
-            // 4. COMMIT DE LA TRANSACCIÓN
-            // ========================================
             conn.commit();
 
             LOGGER.info("Venta registrada exitosamente. ID: " + saleId);
 
-            // Mostrar mensaje de éxito
             String mensajeExito = construirMensajeExito(saleId, totalEnDolares, moneda,
                     montoPagadoEnDolares, tasaBcv);
             JOptionPane.showMessageDialog(this,
                     mensajeExito,
                     "✅ Factura Generada Exitosamente",
                     JOptionPane.INFORMATION_MESSAGE);
-
-            // Limpiar la ventana para nueva venta
             limpiarVentana();
 
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error al registrar la venta", e);
-
-            // Hacer rollback en caso de error
             try {
                 if (conn != null) {
                     conn.rollback();
@@ -969,8 +992,6 @@ public class CapelliSalesWindow extends JFrame {
             } catch (SQLException ex) {
                 LOGGER.log(Level.SEVERE, "Error al hacer rollback", ex);
             }
-
-            // Mostrar mensaje de error detallado
             String mensajeError = "Error al registrar la venta en la base de datos:\n\n"
                     + e.getMessage() + "\n\n"
                     + "Por favor, verifique los datos e intente nuevamente.";
@@ -981,7 +1002,6 @@ public class CapelliSalesWindow extends JFrame {
                     JOptionPane.ERROR_MESSAGE);
 
         } finally {
-            // Cerrar la conexión
             try {
                 if (conn != null) {
                     conn.setAutoCommit(true);
@@ -994,14 +1014,6 @@ public class CapelliSalesWindow extends JFrame {
         }
     }
 
-    /**
-     * Obtiene el ID de un servicio por su nombre.
-     *
-     * @param serviceName Nombre del servicio
-     * @param conn Conexión a la base de datos
-     * @return ID del servicio
-     * @throws SQLException si el servicio no existe
-     */
     private int getServiceId(String serviceName, Connection conn) throws SQLException {
         String sql = "SELECT service_id FROM services WHERE name = ?";
 
@@ -1020,11 +1032,7 @@ public class CapelliSalesWindow extends JFrame {
         }
     }
 
-    /**
-     * Obtiene el ID de una trabajadora por su nombre completo.
-     */
     private int getEmployeeIdByName(String nombreCompleto, Connection conn) throws SQLException {
-        // El nombre completo viene en formato "Nombres Apellidos"
         String[] partes = nombreCompleto.trim().split("\\s+", 2);
 
         if (partes.length < 2) {
@@ -1051,9 +1059,6 @@ public class CapelliSalesWindow extends JFrame {
         }
     }
 
-    /**
-     * Construye un mensaje de éxito con los detalles de la venta.
-     */
     private String construirMensajeExito(long saleId, double total, String moneda,
             double montoPagado, double tasaBcv) {
         DecimalFormat df = new DecimalFormat("#,##0.00");
@@ -1073,7 +1078,6 @@ public class CapelliSalesWindow extends JFrame {
                 mensaje.append("Vuelto: $").append(df.format(vuelto)).append("\n");
             }
         } else {
-            // Mostrar en Bs
             mensaje.append("Total: Bs ").append(df.format(total * tasaBcv)).append("\n");
             mensaje.append("Pagado: Bs ").append(df.format(montoPagado * tasaBcv)).append("\n");
 
@@ -1090,6 +1094,25 @@ public class CapelliSalesWindow extends JFrame {
 
         return mensaje.toString();
     }
+    
+    // MÉTODO AUXILIAR NUEVO
+    private Service obtenerServicioPorNombre(String nombre) {
+        // Esta implementación es simple para la demostración.
+        // Una implementación más eficiente cargaría todos los servicios en un Map al inicio.
+        try {
+            ServiceDAO dao = new ServiceDAO();
+            // Se asume que ServiceDAO tiene el método getAll()
+            return dao.getAll().stream()
+                    .filter(s -> s.getName().equals(nombre))
+                    .findFirst()
+                    .orElse(null);
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "Error al obtener servicio por nombre: " + nombre, e);
+            JOptionPane.showMessageDialog(this, "Error de base de datos al buscar servicio: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+    }
+
 
     private void limpiarVentana() {
         clienteActual = null;
@@ -1103,29 +1126,24 @@ public class CapelliSalesWindow extends JFrame {
         actualizarTotales();
     }
 
+    // CLASE INTERNA MODIFICADA
     private static class Cliente {
-
         private final int id;
         private final String cedula;
         private final String nombre;
+        private final String hairType; // <-- NUEVO CAMPO
 
-        public Cliente(int id, String cedula, String nombre) {
+        public Cliente(int id, String cedula, String nombre, String hairType) {
             this.id = id;
             this.cedula = cedula;
             this.nombre = nombre;
+            this.hairType = hairType;
         }
 
-        public int getId() {
-            return id;
-        }
-
-        public String getCedula() {
-            return cedula;
-        }
-
-        public String getNombre() {
-            return nombre;
-        }
+        public int getId() { return id; }
+        public String getCedula() { return cedula; }
+        public String getNombre() { return nombre; }
+        public String getHairType() { return hairType; } // <-- NUEVO GETTER
     }
 
     private static class VentaServicio {
@@ -1159,7 +1177,7 @@ public class CapelliSalesWindow extends JFrame {
 
     public static void main(String[] args) {
         LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");
-        AppConfig.printConfiguration(); // Para debug
+        AppConfig.printConfiguration(); 
 
         Database.initialize();
 

@@ -83,7 +83,7 @@ public class AppConfig {
         
         // API BCV
         props.setProperty(BCV_API_URL, "https://api.exchangedyn.com/markets/quotes/usdves/bcv");
-        props.setProperty(BCV_DEFAULT_RATE, "36.5");
+        props.setProperty(BCV_DEFAULT_RATE, "200.00");
         props.setProperty(BCV_UPDATE_INTERVAL_MINUTES, "30");
         props.setProperty(BCV_TIMEOUT_SECONDS, "10");
         
