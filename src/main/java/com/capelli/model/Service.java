@@ -1,5 +1,3 @@
-// Archivo: com/capelli/model/Service.java
-
 package com.capelli.model;
 
 public class Service {
