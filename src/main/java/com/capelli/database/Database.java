@@ -11,7 +11,7 @@ import java.util.logging.Logger;
 public class Database {
 
     private static final Logger LOGGER = Logger.getLogger(Database.class.getName());
-    
+
     /**
      * Obtiene la URL de la base de datos desde la configuración.
      */
@@ -21,6 +21,7 @@ public class Database {
 
     /**
      * Establece una conexión a la base de datos.
+     *
      * @return Connection o null si hay error
      */
     public static Connection connect() {
@@ -42,9 +43,9 @@ public class Database {
             LOGGER.info("Inicialización de BD deshabilitada en configuración");
             return;
         }
-        
+
         LOGGER.info("Inicializando base de datos...");
-        
+
         String sqlClients = "CREATE TABLE IF NOT EXISTS clients (\n"
                 + "    client_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    cedula TEXT NOT NULL UNIQUE,\n"
@@ -70,7 +71,7 @@ public class Database {
                 + "    correo TEXT,\n"
                 + "    foto BLOB\n"
                 + ");";
-        
+
         String sqlCuentas = "CREATE TABLE IF NOT EXISTS cuentas_bancarias (\n"
                 + "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    trabajadora_id INTEGER NOT NULL,\n"
@@ -80,11 +81,14 @@ public class Database {
                 + "    es_principal BOOLEAN NOT NULL,\n"
                 + "    FOREIGN KEY (trabajadora_id) REFERENCES trabajadoras (id) ON DELETE CASCADE\n"
                 + ");";
-        
+
         String sqlServices = "CREATE TABLE IF NOT EXISTS services (\n"
                 + "    service_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    name TEXT NOT NULL UNIQUE,\n"
-                + "    price REAL NOT NULL\n"
+                + "    price_corto REAL DEFAULT 0.0,\n"
+                + "    price_medio REAL DEFAULT 0.0,\n"
+                + "    price_largo REAL DEFAULT 0.0,\n"
+                + "    price_ext REAL DEFAULT 0.0\n"
                 + ");";
 
         String sqlSales = "CREATE TABLE IF NOT EXISTS sales (\n"
@@ -120,39 +124,39 @@ public class Database {
                 + "    FOREIGN KEY (sale_id) REFERENCES sales (sale_id)\n"
                 + ");";
 
-        try (Connection conn = connect();
-             Statement stmt = conn.createStatement()) {
-            
+        try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
+
             stmt.execute(sqlClients);
             LOGGER.info("Tabla 'clients' verificada/creada");
-            
+
             stmt.execute(sqlTrabajadoras);
             LOGGER.info("Tabla 'trabajadoras' verificada/creada");
-            
+
             stmt.execute(sqlCuentas);
             LOGGER.info("Tabla 'cuentas_bancarias' verificada/creada");
-            
+
             stmt.execute(sqlServices);
             LOGGER.info("Tabla 'services' verificada/creada");
-            
+
             stmt.execute(sqlSales);
             LOGGER.info("Tabla 'sales' verificada/creada");
-            
+
             stmt.execute(sqlSaleItems);
             LOGGER.info("Tabla 'sale_items' verificada/creada");
-            
+
             stmt.execute(sqlTips);
             LOGGER.info("Tabla 'tips' verificada/creada");
-            
+
             LOGGER.info("Base de datos inicializada correctamente");
 
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error al inicializar la base de datos", e);
         }
     }
-    
+
     /**
      * Verifica que la conexión a la base de datos esté funcionando.
+     *
      * @return true si la conexión es exitosa
      */
     public static boolean testConnection() {

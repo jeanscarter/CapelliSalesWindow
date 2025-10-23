@@ -56,7 +56,7 @@ public class CapelliSalesWindow extends JFrame {
     private JTable serviciosTable;
     private JTextField cedulaField;
     private JLabel nombreClienteLabel;
-    private JLabel tasaLabel;
+    private final JLabel tasaLabel = new JLabel("Tasa BCV: Cargando...");
     private JComboBox<String> serviciosComboBox;
     private JComboBox<String> trabajadorasComboBox;
     private JComboBox<String> descuentoComboBox;
@@ -115,7 +115,7 @@ public class CapelliSalesWindow extends JFrame {
             }
         };
         worker.execute();
-        JLabel tasaLabel = new JLabel("Tasa BCV: Cargando...");
+        
 
         tableModel = new DefaultTableModel(new String[]{"Servicio", "Trabajador(a)", "Precio ($)"}, 0) {
             @Override
@@ -220,7 +220,7 @@ public class CapelliSalesWindow extends JFrame {
 
     private void cargarDatosDesdeDB() {
 
-        String sqlServices = "SELECT name, price FROM services ORDER BY name"; 
+        String sqlServices = "SELECT name, price_corto FROM services ORDER BY name";
         try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlServices)) {
             preciosServicios.clear();
             
@@ -230,7 +230,7 @@ public class CapelliSalesWindow extends JFrame {
 
             while (rs.next()) {
                 String serviceName = rs.getString("name");
-                preciosServicios.put(serviceName, rs.getDouble("price"));
+                preciosServicios.put(serviceName, rs.getDouble("price_corto"));
                 if (serviciosComboBox != null) {
                     serviciosComboBox.addItem(serviceName);
                 }
@@ -266,7 +266,6 @@ public class CapelliSalesWindow extends JFrame {
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error al cargar trabajadoras: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
         }
-
     }
 
     private JPanel crearPanelIzquierdo() {
@@ -287,7 +286,6 @@ public class CapelliSalesWindow extends JFrame {
         clientePanel.add(new JLabel("Cédula:"), gbcCliente);
         cedulaField = new JTextField(15);
 
-        tasaLabel = new JLabel("Tasa BCV: Cargando...");
         tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         gbcCliente.gridx = 0;
         gbcCliente.gridy = 4;
