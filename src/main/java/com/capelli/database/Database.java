@@ -4,6 +4,7 @@ import com.capelli.config.AppConfig;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.logging.Level;
@@ -54,6 +55,57 @@ public class Database {
             pstmt.executeUpdate();
         }
     }
+    
+    /**
+     * (NUEVO) Inserta o actualiza una trabajadora.
+     * Utiliza INSERT OR REPLACE basado en la restricción UNIQUE de 'numero_ci'.
+     */
+    private static void addOrUpdateTrabajadora(Connection conn, String nombres, String apellidos, String tipo_ci, String numero_ci, String telefono) throws SQLException {
+        // Se asume que correo y foto son nulos durante la precarga.
+        String sql = "INSERT OR REPLACE INTO trabajadoras (nombres, apellidos, tipo_ci, numero_ci, telefono, correo, foto) " +
+                     "VALUES (?, ?, ?, ?, ?, NULL, NULL)";
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombres);
+            pstmt.setString(2, apellidos);
+            pstmt.setString(3, tipo_ci);
+            pstmt.setString(4, numero_ci);
+            pstmt.setString(5, telefono);
+            pstmt.executeUpdate();
+        }
+    }
+
+    /**
+     * (NUEVO) Inserta o actualiza una cuenta bancaria.
+     * Utiliza INSERT OR REPLACE basado en la restricción UNIQUE de 'numero_cuenta'.
+     */
+    private static void addOrUpdateCuenta(Connection conn, String trabajadora_ci, String banco, String tipo_cuenta, String numero_cuenta, boolean es_principal) throws SQLException {
+        // 1. Obtener el ID de la trabajadora usando su Cédula
+        int trabajadora_id = -1;
+        String sqlGetId = "SELECT id FROM trabajadoras WHERE numero_ci = ?";
+        try (PreparedStatement pstmtGetId = conn.prepareStatement(sqlGetId)) {
+            pstmtGetId.setString(1, trabajadora_ci);
+            ResultSet rs = pstmtGetId.executeQuery();
+            if (rs.next()) {
+                trabajadora_id = rs.getInt("id");
+            } else {
+                LOGGER.warning("No se encontró trabajadora con CI: " + trabajadora_ci + " para agregar cuenta. Saltando...");
+                return; // No se puede agregar la cuenta si la trabajadora no existe
+            }
+        }
+
+        // 2. Insertar o reemplazar la cuenta bancaria
+        String sqlCuenta = "INSERT OR REPLACE INTO cuentas_bancarias (trabajadora_id, banco, tipo_cuenta, numero_cuenta, es_principal) " +
+                           "VALUES (?, ?, ?, ?, ?)";
+        try (PreparedStatement pstmt = conn.prepareStatement(sqlCuenta)) {
+            pstmt.setInt(1, trabajadora_id);
+            pstmt.setString(2, banco);
+            pstmt.setString(3, tipo_cuenta);
+            pstmt.setString(4, numero_cuenta);
+            pstmt.setBoolean(5, es_principal);
+            pstmt.executeUpdate();
+        }
+    }
+
 
     /**
      * Inicializa la base de datos creando las tablas necesarias.
@@ -76,7 +128,7 @@ public class Database {
                 + "    birth_date TEXT,\n"
                 + "    last_dye_date TEXT,\n"
                 + "    last_chemical_date TEXT,\n"
-                + "    last_keratin_date TEXT,\n"
+                + "    last_keratin_date TEXT,\n" // Corregido de 'last_keratin_date'
                 + "    extensions_type TEXT,\n"
                 + "    last_extensions_maintenance_date TEXT\n"
                 + ");";
@@ -188,6 +240,45 @@ public class Database {
             addOrUpdateService(conn, "Keratina", 60.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Mantenimiento", 120.0, 0.0, 0.0, 0.0, false, 0.0);
             LOGGER.info("Lista de servicios actualizada.");
+
+            // ===== INICIO DE PRECARGA DE TRABAJADORAS Y CUENTAS =====
+            LOGGER.info("Agregando/Actualizando lista de trabajadoras y cuentas...");
+
+            // Datos extraídos de capelli_salon.db
+            addOrUpdateTrabajadora(conn, "Dayana", "Govea", "V", "18522231", "04127915851");
+            addOrUpdateCuenta(conn, "18522231", "Banco Provincial", "Corriente", "01080511200100296908", true);
+
+            addOrUpdateTrabajadora(conn, "Maria Virginia", "Romero", "V", "31085005", "04143604499");
+            addOrUpdateCuenta(conn, "31085005", "Banesco", "Corriente", "01340039330391056651", true);
+
+            addOrUpdateTrabajadora(conn, "Pascualina", "Gutierrez", "V", "5562378", "04146638330");
+            addOrUpdateCuenta(conn, "5562378", "Banco Provincial", "Ahorro", "01080086240200360744", true);
+
+            addOrUpdateTrabajadora(conn, "Aurora Sofia", "Exposito", "V", "27683374", "04242092890");
+            addOrUpdateCuenta(conn, "27683374", "Banesco", "Corriente", "01340039330391055077", true);
+
+            addOrUpdateTrabajadora(conn, "Jeimy", "Añez", "V", "18921264", "04246695087");
+            addOrUpdateCuenta(conn, "18921264", "Banco Provincial", "Corriente", "01080059550100393036", true);
+
+            addOrUpdateTrabajadora(conn, "Belkis", "Gutierrez", "V", "9395233", "04146126300");
+            addOrUpdateCuenta(conn, "9395233", "Banco Provincial", "Corriente", "01080086260100175613", true);
+
+            addOrUpdateTrabajadora(conn, "Milagros", "Gutierrez", "V", "24342800", "04246194365");
+            addOrUpdateCuenta(conn, "24342800", "Banco Provincial", "Ahorro", "01080302190200068019", true);
+
+            addOrUpdateTrabajadora(conn, "Maria", "Diaz", "V", "7774946", "04246464683");
+            // No se encontraron cuentas para Maria Diaz en el archivo .db
+
+            addOrUpdateTrabajadora(conn, "Rosa Maria", "Gutierrez", "V", "9200133", "04246889337");
+            // Múltiples cuentas para Rosa Maria
+            addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340946380001307454", true); // Asignada como principal
+            addOrUpdateCuenta(conn, "9200133", "Banco Nacional de Crédito (BNC)", "Corriente", "01160148150014749505", false);
+            addOrUpdateCuenta(conn, "9200133", "Bancamiga", "Corriente", "01720112381125322600", false);
+            addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340077650773172568", false);
+
+            LOGGER.info("Lista de trabajadoras y cuentas actualizada.");
+            // ===== FIN DE PRECARGA =====
+
 
             LOGGER.info("Base de datos inicializada correctamente");
 

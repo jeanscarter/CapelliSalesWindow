@@ -37,6 +37,9 @@ import java.io.InputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import com.capelli.validation.*;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 
 public class CapelliSalesWindow extends JFrame {
 
@@ -53,7 +56,8 @@ public class CapelliSalesWindow extends JFrame {
 
     private final DefaultTableModel tableModel;
     private JTable serviciosTable;
-    private JTextField cedulaField;
+    private JComboBox<String> cedulaTipoComboBox;
+    private JTextField cedulaNumeroField;
     private JLabel nombreClienteLabel;
     private final JLabel tasaLabel = new JLabel("Tasa BCV: Cargando...");
     private JComboBox<String> serviciosComboBox;
@@ -201,22 +205,8 @@ public class CapelliSalesWindow extends JFrame {
         }));
 
         // Validación de cédula en tiempo real
-        cedulaField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
-            String cedula = cedulaField.getText().trim();
-            if (!cedula.isEmpty()) {
-                if (CommonValidators.isValidCedula(cedula)) {
-                    ValidationHelper.resetFieldBorder(cedulaField);
-                    ValidationHelper.removeErrorTooltip(cedulaField);
-                } else {
-                    ValidationHelper.markFieldAsWarning(cedulaField);
-                    ValidationHelper.addErrorTooltip(cedulaField,
-                            "Formato: V-12345678 o E-12345678");
-                }
-            } else {
-                ValidationHelper.resetFieldBorder(cedulaField);
-                ValidationHelper.removeErrorTooltip(cedulaField);
-            }
-        }));
+        cedulaNumeroField.getDocument().addDocumentListener(new SimpleDocumentListener(this::validateCedulaInput));
+        cedulaTipoComboBox.addActionListener(e -> validateCedulaInput());
     }
 
     private void cargarDatosDesdeDB() {
@@ -300,7 +290,26 @@ public class CapelliSalesWindow extends JFrame {
         gbcCliente.gridx = 0;
         gbcCliente.gridy = 0;
         clientePanel.add(new JLabel("Cédula:"), gbcCliente);
-        cedulaField = new JTextField(15);
+        
+        // --- INICIO MODIFICACIÓN CÉDULA ---
+        cedulaTipoComboBox = new JComboBox<>(new String[]{"V", "J", "G", "P"});
+        cedulaNumeroField = new JTextField(15);
+        // Add the numeric filter
+        ((javax.swing.text.AbstractDocument) cedulaNumeroField.getDocument()).setDocumentFilter(new NumericFilter());
+
+        JPanel cedulaPanel = new JPanel(new BorderLayout(5, 0));
+        cedulaPanel.add(cedulaTipoComboBox, BorderLayout.WEST);
+        cedulaPanel.add(cedulaNumeroField, BorderLayout.CENTER);
+
+        gbcCliente.gridx = 1;
+        gbcCliente.gridy = 0;
+        gbcCliente.gridwidth = 2;
+        gbcCliente.weightx = 1.0;
+        clientePanel.add(cedulaPanel, gbcCliente);
+        
+        cedulaNumeroField.addActionListener(e -> buscarClienteEnDB());
+        // --- FIN MODIFICACIÓN CÉDULA ---
+
 
         tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         gbcCliente.gridx = 0;
@@ -313,13 +322,11 @@ public class CapelliSalesWindow extends JFrame {
         gbc.gridy = 0;
         panel.add(clientePanel, gbc);
 
-        cedulaField.addActionListener(e -> buscarClienteEnDB());
-
         gbcCliente.gridx = 1;
         gbcCliente.gridy = 0;
         gbcCliente.gridwidth = 2;
         gbcCliente.weightx = 1.0;
-        clientePanel.add(cedulaField, gbcCliente);
+        // clientePanel.add(cedulaField, gbcCliente); // Reemplazado por cedulaPanel
 
         JButton buscarClienteBtn = new JButton("Buscar Cliente");
         gbcCliente.gridx = 0;
@@ -521,18 +528,48 @@ public class CapelliSalesWindow extends JFrame {
         return panel;
     }
 
+    private void validateCedulaInput() {
+        String tipoCi = (String) cedulaTipoComboBox.getSelectedItem();
+        String numeroCi = cedulaNumeroField.getText().trim();
+
+        if (!numeroCi.isEmpty()) {
+            String cedula = tipoCi + "-" + numeroCi;
+            if (CommonValidators.isValidCedula(cedula)) {
+                ValidationHelper.resetFieldBorder(cedulaNumeroField);
+                ValidationHelper.removeErrorTooltip(cedulaNumeroField);
+            } else {
+                ValidationHelper.markFieldAsWarning(cedulaNumeroField);
+                ValidationHelper.addErrorTooltip(cedulaNumeroField,
+                        "Cédula incompleta o inválida (ej: 6-9 dígitos)");
+            }
+        } else {
+            ValidationHelper.resetFieldBorder(cedulaNumeroField);
+            ValidationHelper.removeErrorTooltip(cedulaNumeroField);
+        }
+    }
+
     private void buscarClienteEnDB() {
-        String cedula = cedulaField.getText().trim();
+        String tipoCi = (String) cedulaTipoComboBox.getSelectedItem();
+        String numeroCi = cedulaNumeroField.getText().trim();
+        
+        // Si el número está vacío, no hacer nada.
+        if (numeroCi.isEmpty()) {
+            nombreClienteLabel.setText("Nombre: No cargado");
+            clienteActual = null;
+            return;
+        }
+
+        String cedula = tipoCi + "-" + numeroCi;
 
         ValidationResult result = ClienteValidator.validateCedula(cedula);
 
         if (!result.isValid()) {
             ValidationHelper.showErrors(this, result);
-            ValidationHelper.markFieldAsError(cedulaField);
+            ValidationHelper.markFieldAsError(cedulaNumeroField);
             return;
         }
 
-        ValidationHelper.resetFieldBorder(cedulaField);
+        ValidationHelper.resetFieldBorder(cedulaNumeroField);
 
         // MODIFICADO: Se añade hair_type a la consulta
         String sql = "SELECT client_id, full_name, hair_type FROM clients WHERE cedula = ?";
@@ -942,21 +979,26 @@ public class CapelliSalesWindow extends JFrame {
 
         String moneda = monedaDolar.isSelected() ? "$" : "Bs";
 
+        // --- INICIO CORRECCIÓN DE ERROR ---
+        // El total (calculado desde subtotal, descuento y propina) SIEMPRE está en Dólares.
         double totalEnDolares = total;
-        double montoPagadoEnDolares = montoPagado;
+        double montoPagadoEnDolares = montoPagado; // Asumir que el monto pagado está en $
 
         if (moneda.equals("Bs")) {
-            totalEnDolares = total / tasaBcv;
+            // Si la moneda es "Bs", SÓLO el monto pagado debe convertirse a Dólares
+            // para la validación de pago. El 'totalEnDolares' ya es correcto.
             montoPagadoEnDolares = montoPagado / tasaBcv;
         }
+        // --- FIN CORRECCIÓN DE ERROR ---
+
 
         ValidationResult result = VentaValidator.validateVenta(
                 serviciosParaValidar,
                 subtotal,
                 descuento,
                 propina,
-                totalEnDolares,
-                montoPagadoEnDolares,
+                totalEnDolares, // <- Este es el total en $ (Esperado: 25.00)
+                montoPagadoEnDolares, // <- Este es el monto pagado en $ (Actual: 25.00)
                 metodoPago,
                 tipoDesc
         );
@@ -1009,7 +1051,9 @@ public class CapelliSalesWindow extends JFrame {
                     + "discount_amount, total, payment_method, currency, payment_destination) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
-            try (PreparedStatement pstmt = conn.prepareStatement(sqlSale, Statement.RETURN_GENERATED_KEYS)) {
+            // --- INICIO CORRECCIÓN SQLITE ---
+            // 1. Preparar el PreparedStatement SIN pedir generated keys
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
                 if (clienteActual != null) {
                     pstmt.setInt(1, clienteActual.getId());
                 } else {
@@ -1031,15 +1075,19 @@ public class CapelliSalesWindow extends JFrame {
                 }
 
                 pstmt.executeUpdate();
+            }
 
-                ResultSet rs = pstmt.getGeneratedKeys();
+            // 2. Obtener el ID con una consulta separada
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()")) {
                 if (rs.next()) {
                     saleId = rs.getLong(1);
                     LOGGER.info("Venta insertada con ID: " + saleId);
                 } else {
-                    throw new SQLException("Error al obtener el ID de la venta generada");
+                    throw new SQLException("Error al obtener el ID de la venta generada (last_insert_rowid falló)");
                 }
             }
+            // --- FIN CORRECCIÓN SQLITE ---
 
             String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale) "
                     + "VALUES (?, ?, ?, ?)";
@@ -1143,32 +1191,30 @@ public class CapelliSalesWindow extends JFrame {
         }
     }
 
+    // =========================================================================
+    // --- MÉTODO CORREGIDO ---
+    // =========================================================================
+    
+    /**
+     * Obtiene el ID de la trabajadora basado en el nombre completo.
+     * CORREGIDO: Busca en la lista 'trabajadorasList' en lugar de dividir el string.
+     */
     private int getEmployeeIdByName(String nombreCompleto, Connection conn) throws SQLException {
-        String[] partes = nombreCompleto.trim().split("\\s+", 2);
-
-        if (partes.length < 2) {
-            throw new SQLException("Formato de nombre inválido: " + nombreCompleto
-                    + ". Se esperaba 'Nombres Apellidos'");
-        }
-
-        String nombres = partes[0];
-        String apellidos = partes[1];
-
-        String sql = "SELECT id FROM trabajadoras WHERE nombres = ? AND apellidos = ?";
-
-        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, nombres);
-            pstmt.setString(2, apellidos);
-            ResultSet rs = pstmt.executeQuery();
-
-            if (rs.next()) {
-                return rs.getInt("id");
-            } else {
-                throw new SQLException("Trabajadora no encontrada: " + nombreCompleto
-                        + " (nombres: '" + nombres + "', apellidos: '" + apellidos + "')");
+        // Iterar sobre la lista de trabajadoras cargada en memoria
+        for (Trabajadora t : trabajadorasList) {
+            if (t.getNombreCompleto().equals(nombreCompleto)) {
+                return t.getId(); // Encontrado
             }
         }
+        
+        // Si no se encuentra en la lista (esto no debería pasar si la lista está sincronizada)
+        // Lanza el error que viste
+        throw new SQLException("Trabajadora no encontrada: " + nombreCompleto 
+                + " (Error: no se encontró en la lista 'trabajadorasList' de la aplicación)");
     }
+    // =========================================================================
+    // --- FIN DE LA CORRECCIÓN ---
+    // =========================================================================
 
     private String construirMensajeExito(long saleId, double total, String moneda,
             double montoPagado, double tasaBcv) {
@@ -1220,7 +1266,8 @@ public class CapelliSalesWindow extends JFrame {
 
     private void limpiarVentana() {
         clienteActual = null;
-        cedulaField.setText("");
+        cedulaTipoComboBox.setSelectedItem("V");
+        cedulaNumeroField.setText("");
         nombreClienteLabel.setText("Nombre: No cargado");
         serviciosAgregados.clear();
         tableModel.setRowCount(0);
@@ -1337,6 +1384,26 @@ public class CapelliSalesWindow extends JFrame {
         @Override
         public void changedUpdate(javax.swing.event.DocumentEvent e) {
             callback.run();
+        }
+    }
+    
+    /**
+     * Filtro para permitir solo entradas numéricas en un JTextField.
+     * Copiado de TrabajadoraDialog.
+     */
+    private static class NumericFilter extends javax.swing.text.DocumentFilter {
+        @Override
+        public void insertString(FilterBypass fb, int offset, String string, javax.swing.text.AttributeSet attr) throws javax.swing.text.BadLocationException {
+            if (string.matches("[0-9]+")) {
+                super.insertString(fb, offset, string, attr);
+            }
+        }
+
+        @Override
+        public void replace(FilterBypass fb, int offset, int length, String text, javax.swing.text.AttributeSet attrs) throws javax.swing.text.BadLocationException {
+            if (text.matches("[0-9]+")) {
+                super.replace(fb, offset, length, text, attrs);
+            }
         }
     }
 }
