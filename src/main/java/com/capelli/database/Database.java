@@ -3,6 +3,7 @@ package com.capelli.database;
 import com.capelli.config.AppConfig;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.logging.Level;
@@ -33,6 +34,25 @@ public class Database {
             LOGGER.log(Level.SEVERE, "Error al conectar a la base de datos", e);
         }
         return conn;
+    }
+
+    /**
+     * Inserta o actualiza un servicio en la base de datos. Utiliza INSERT OR
+     * REPLACE para evitar duplicados por nombre.
+     */
+    private static void addOrUpdateService(Connection conn, String name, double pCorto, double pMedio, double pLargo, double pExt, boolean permiteCliente, double pCliente) throws SQLException {
+        // Usa INSERT OR REPLACE para manejar la clave única 'name' y actualizar si ya existe
+        String sql = "INSERT OR REPLACE INTO services (name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, name);
+            pstmt.setDouble(2, pCorto);
+            pstmt.setDouble(3, pMedio);
+            pstmt.setDouble(4, pLargo);
+            pstmt.setDouble(5, pExt);
+            pstmt.setBoolean(6, permiteCliente);
+            pstmt.setDouble(7, pCliente);
+            pstmt.executeUpdate();
+        }
     }
 
     /**
@@ -88,7 +108,9 @@ public class Database {
                 + "    price_corto REAL DEFAULT 0.0,\n"
                 + "    price_medio REAL DEFAULT 0.0,\n"
                 + "    price_largo REAL DEFAULT 0.0,\n"
-                + "    price_ext REAL DEFAULT 0.0\n"
+                + "    price_ext REAL DEFAULT 0.0,\n"
+                + "    permite_cliente_producto BOOLEAN DEFAULT 0,\n"
+                + "    price_cliente_producto REAL DEFAULT 0.0\n"
                 + ");";
 
         String sqlSales = "CREATE TABLE IF NOT EXISTS sales (\n"
@@ -146,6 +168,26 @@ public class Database {
 
             stmt.execute(sqlTips);
             LOGGER.info("Tabla 'tips' verificada/creada");
+
+            LOGGER.info("Agregando/Actualizando lista de servicios...");
+            addOrUpdateService(conn, "Lavado", 10.0, 0.0, 0.0, 0.0, true, 8.0); // Permite, precio 8 si trae
+            addOrUpdateService(conn, "Hidratación + Secado", 20.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Secado", 12.0, 15.0, 20.0, 35.0, false, 0.0);
+            addOrUpdateService(conn, "Ondas", 45.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Corte Puntas", 20.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Corte Elaborado", 25.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Maquillaje", 60.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Peinados", 40.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Color (Tinte)", 50.0, 0.0, 0.0, 0.0, false, 0.0); // Asumiendo que este es el servicio COMPLETO
+            addOrUpdateService(conn, "Mechas", 80.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Aplicación de Tinte", 30.0, 0.0, 0.0, 0.0, true, 25.0); // Permite, precio 25 si trae
+            addOrUpdateService(conn, "Cejas", 10.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Bozo", 12.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Manicure Tradicional", 10.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Pedicure Tradicional", 15.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Keratina", 60.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Mantenimiento", 120.0, 0.0, 0.0, 0.0, false, 0.0);
+            LOGGER.info("Lista de servicios actualizada.");
 
             LOGGER.info("Base de datos inicializada correctamente");
 

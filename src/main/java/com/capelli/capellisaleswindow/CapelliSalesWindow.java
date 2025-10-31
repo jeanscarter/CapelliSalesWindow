@@ -38,7 +38,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import com.capelli.validation.*;
 
-
 public class CapelliSalesWindow extends JFrame {
 
     private static final Logger LOGGER = Logger.getLogger(CapelliSalesWindow.class.getName());
@@ -75,6 +74,9 @@ public class CapelliSalesWindow extends JFrame {
 
     private final List<VentaServicio> serviciosAgregados = new ArrayList<>();
     private Cliente clienteActual = null;
+
+    private JCheckBox clienteProductoCheck;
+    private Map<String, Service> serviciosMap = new HashMap<>(); 
 
     public CapelliSalesWindow() {
         super(AppConfig.getAppTitle());
@@ -115,7 +117,6 @@ public class CapelliSalesWindow extends JFrame {
             }
         };
         worker.execute();
-        
 
         tableModel = new DefaultTableModel(new String[]{"Servicio", "Trabajador(a)", "Precio ($)"}, 0) {
             @Override
@@ -219,53 +220,68 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private void cargarDatosDesdeDB() {
+        ServiceDAO serviceDAO = new ServiceDAO(); // Mover la instanciación aquí o hacerla variable de instancia
 
-        String sqlServices = "SELECT name, price_corto FROM services ORDER BY name";
-        try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlServices)) {
-            preciosServicios.clear();
-            
+        try {
+            serviciosMap = serviceDAO.getAllMap(); // Cargar todos los servicios en el Map
+            preciosServicios.clear(); // Limpiar el mapa antiguo (si aún lo usas para algo)
+
             if (serviciosComboBox != null) {
                 serviciosComboBox.removeAllItems();
+                // Llenar el ComboBox con los nombres de los servicios del Map
+                serviciosMap.keySet().stream().sorted().forEach(serviciosComboBox::addItem);
+                 // Seleccionar el primer item si existe
+                if (serviciosComboBox.getItemCount() > 0) {
+                     serviciosComboBox.setSelectedIndex(0);
+                 }
             }
+             // Llenar el mapa antiguo si es necesario para compatibilidad (Opcional)
+             serviciosMap.forEach((name, service) -> preciosServicios.put(name, service.getPrice_corto()));
 
-            while (rs.next()) {
-                String serviceName = rs.getString("name");
-                preciosServicios.put(serviceName, rs.getDouble("price_corto"));
-                if (serviciosComboBox != null) {
-                    serviciosComboBox.addItem(serviceName);
-                }
-            }
+
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error al cargar servicios: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
+            LOGGER.log(Level.SEVERE, "Error al cargar servicios desde DB", e);
         }
 
-        String sqlEmployees = "SELECT id, nombres, apellidos FROM trabajadoras ORDER BY nombres";
-        try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlEmployees)) {
+        // ... (código para cargar trabajadoras se mantiene igual) ...
+         String sqlEmployees = "SELECT id, nombres, apellidos FROM trabajadoras ORDER BY nombres";
+         try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlEmployees)) {
+             trabajadorasList.clear();
+             trabajadorasNombres.clear();
+             if (trabajadorasComboBox != null) {
+                 trabajadorasComboBox.removeAllItems();
+             }
+             if (propinaTrabajadoraComboBox != null) {
+                 propinaTrabajadoraComboBox.removeAllItems(); // Limpiar también el de propinas
+             }
 
-            trabajadorasList.clear();
-            trabajadorasNombres.clear();
+             List<String> propinaDestinatarios = new ArrayList<>();
 
-            if (trabajadorasComboBox != null) {
-                trabajadorasComboBox.removeAllItems();
-            }
+             while (rs.next()) {
+                 Trabajadora t = new Trabajadora();
+                 t.setId(rs.getInt("id"));
+                 t.setNombres(rs.getString("nombres"));
+                 t.setApellidos(rs.getString("apellidos"));
+                 trabajadorasList.add(t);
+                 String nombreCompleto = t.getNombreCompleto();
+                 trabajadorasNombres.add(nombreCompleto);
+                 propinaDestinatarios.add(nombreCompleto); // Añadir a la lista de propinas
 
-            while (rs.next()) {
-                Trabajadora t = new Trabajadora();
-                t.setId(rs.getInt("id"));
-                t.setNombres(rs.getString("nombres"));
-                t.setApellidos(rs.getString("apellidos"));
+                 if (trabajadorasComboBox != null) {
+                     trabajadorasComboBox.addItem(nombreCompleto);
+                 }
+             }
 
-                trabajadorasList.add(t);
-                String nombreCompleto = t.getNombreCompleto();
-                trabajadorasNombres.add(nombreCompleto);
+             propinaDestinatarios.add("Salón"); // Añadir "Salón" al final
+             if (propinaTrabajadoraComboBox != null) {
+                  propinaDestinatarios.forEach(propinaTrabajadoraComboBox::addItem);
+              }
 
-                if (trabajadorasComboBox != null) {
-                    trabajadorasComboBox.addItem(nombreCompleto);
-                }
-            }
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error al cargar trabajadoras: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
-        }
+         } catch (SQLException e) {
+             JOptionPane.showMessageDialog(this, "Error al cargar trabajadoras: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
+              LOGGER.log(Level.SEVERE, "Error al cargar trabajadoras desde DB", e);
+         }
     }
 
     private JPanel crearPanelIzquierdo() {
@@ -322,8 +338,8 @@ public class CapelliSalesWindow extends JFrame {
         gestionarClientesBtn.addActionListener(e -> new ClientManagementWindow().setVisible(true));
 
         JButton gestionarServiciosBtn = new JButton("Gestionar Servicios");
-        gbcCliente.gridx = 2; 
-        gbcCliente.gridy = 2; 
+        gbcCliente.gridx = 2;
+        gbcCliente.gridy = 2;
         gbcCliente.gridwidth = 1;
         clientePanel.add(gestionarServiciosBtn, gbcCliente);
 
@@ -333,7 +349,7 @@ public class CapelliSalesWindow extends JFrame {
             serviceWindow.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent windowEvent) {
-                    cargarDatosDesdeDB(); 
+                    cargarDatosDesdeDB();
                 }
             });
         });
@@ -409,17 +425,28 @@ public class CapelliSalesWindow extends JFrame {
         gbcServicios.weightx = 1.0;
         serviciosPanel.add(trabajadorasComboBox, gbcServicios);
 
+        // --- NUEVO: CheckBox Cliente Trae Producto ---
+        clienteProductoCheck = new JCheckBox("Cliente trae producto");
+        clienteProductoCheck.setVisible(false); // Oculto por defecto
+        gbcServicios.gridx = 0;
+        gbcServicios.gridy = 3; // Nueva fila para el checkbox
+        gbcServicios.gridwidth = 2; // Ocupa ambas columnas
+        gbcServicios.anchor = GridBagConstraints.WEST; // Alinear a la izquierda
+        serviciosPanel.add(clienteProductoCheck, gbcServicios);
+        // --- FIN NUEVO ---
+
         JButton agregarBtn = new JButton("Agregar Servicio");
         gbcServicios.gridx = 0;
-        gbcServicios.gridy = 2;
+        gbcServicios.gridy = 4; // Mover botones una fila abajo
         gbcServicios.gridwidth = 1;
         gbcServicios.weightx = 0.5;
+        gbcServicios.anchor = GridBagConstraints.CENTER; // Resetear anchor
         serviciosPanel.add(agregarBtn, gbcServicios);
         agregarBtn.addActionListener(e -> agregarServicio());
 
         JButton eliminarBtn = new JButton("Eliminar Servicio");
         gbcServicios.gridx = 1;
-        gbcServicios.gridy = 2;
+        gbcServicios.gridy = 4; // Mover botones una fila abajo
         gbcServicios.gridwidth = 1;
         gbcServicios.weightx = 0.5;
         serviciosPanel.add(eliminarBtn, gbcServicios);
@@ -428,6 +455,33 @@ public class CapelliSalesWindow extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 1;
         panel.add(serviciosPanel, gbc);
+
+        // --- NUEVO: Listener para ComboBox de Servicios ---
+        serviciosComboBox.addActionListener(e -> {
+            String selectedServiceName = (String) serviciosComboBox.getSelectedItem();
+            if (selectedServiceName != null) {
+                Service selectedService = serviciosMap.get(selectedServiceName);
+                if (selectedService != null && selectedService.isPermiteClienteProducto()) {
+                    clienteProductoCheck.setVisible(true); // Mostrar checkbox
+                } else {
+                    clienteProductoCheck.setVisible(false); // Ocultar checkbox
+                    clienteProductoCheck.setSelected(false); // Desmarcar si se oculta
+                }
+            } else {
+                clienteProductoCheck.setVisible(false);
+                clienteProductoCheck.setSelected(false);
+            }
+        });
+        // --- FIN NUEVO LISTENER ---
+
+        // --- NUEVO: Listener para el CheckBox ---
+        clienteProductoCheck.addActionListener(e -> {
+            // Podrías agregar lógica aquí si necesitaras recalcular algo
+            // inmediatamente al marcar/desmarcar, pero no es estrictamente
+            // necesario ya que el precio se calcula al agregar.
+            LOGGER.fine("Checkbox 'Cliente trae producto' cambiado a: " + clienteProductoCheck.isSelected());
+        });
+        // --- FIN NUEVO LISTENER CHECKBOX ---
 
         JButton verReporteDiarioBtn = new JButton("Ver Reporte del Día");
         gbcCliente.gridx = 0;
@@ -469,39 +523,39 @@ public class CapelliSalesWindow extends JFrame {
 
     private void buscarClienteEnDB() {
         String cedula = cedulaField.getText().trim();
-    
+
         ValidationResult result = ClienteValidator.validateCedula(cedula);
-    
+
         if (!result.isValid()) {
             ValidationHelper.showErrors(this, result);
             ValidationHelper.markFieldAsError(cedulaField);
             return;
         }
-    
+
         ValidationHelper.resetFieldBorder(cedulaField);
-    
+
         // MODIFICADO: Se añade hair_type a la consulta
         String sql = "SELECT client_id, full_name, hair_type FROM clients WHERE cedula = ?";
         try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
-    
+
             pstmt.setString(1, cedula);
             ResultSet rs = pstmt.executeQuery();
-    
+
             if (rs.next()) {
                 // MODIFICADO: Se crea el objeto Cliente con el nuevo dato
                 clienteActual = new Cliente(
-                    rs.getInt("client_id"), 
-                    cedula, 
-                    rs.getString("full_name"),
-                    rs.getString("hair_type") // <-- Se obtiene el dato
+                        rs.getInt("client_id"),
+                        cedula,
+                        rs.getString("full_name"),
+                        rs.getString("hair_type") // <-- Se obtiene el dato
                 );
-                
+
                 // MODIFICADO: Se muestra el tipo de cabello para confirmación
                 String hairTypeInfo = clienteActual.getHairType();
-                String infoCliente = "Nombre: " + clienteActual.getNombre() + 
-                                     " (Cabello: " + (hairTypeInfo != null && !hairTypeInfo.isEmpty() ? hairTypeInfo : "No definido") + ")";
+                String infoCliente = "Nombre: " + clienteActual.getNombre()
+                        + " (Cabello: " + (hairTypeInfo != null && !hairTypeInfo.isEmpty() ? hairTypeInfo : "No definido") + ")";
                 nombreClienteLabel.setText(infoCliente);
-                
+
                 LOGGER.info("Cliente cargado: " + clienteActual.getNombre());
                 JOptionPane.showMessageDialog(this,
                         "Cliente cargado: " + clienteActual.getNombre(),
@@ -510,13 +564,13 @@ public class CapelliSalesWindow extends JFrame {
             } else {
                 clienteActual = null;
                 nombreClienteLabel.setText("Nombre: No encontrado");
-    
+
                 int response = JOptionPane.showConfirmDialog(this,
                         "Cliente no encontrado. ¿Desea registrar un nuevo cliente?",
                         "Cliente No Encontrado",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
-    
+
                 if (response == JOptionPane.YES_OPTION) {
                     ClientManagementWindow clientWindow = new ClientManagementWindow(cedula);
                     clientWindow.setVisible(true);
@@ -534,46 +588,101 @@ public class CapelliSalesWindow extends JFrame {
     private void agregarServicio() {
         String nombreServicio = (String) serviciosComboBox.getSelectedItem();
         String trabajadora = (String) trabajadorasComboBox.getSelectedItem();
-
+        boolean clienteTraeProducto = clienteProductoCheck.isSelected() && clienteProductoCheck.isVisible();
+    
         if (nombreServicio == null) {
             JOptionPane.showMessageDialog(this, "Por favor, seleccione un servicio.", "Servicio no seleccionado", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        if (trabajadora == null) {
+             JOptionPane.showMessageDialog(this, "Por favor, seleccione una trabajadora.", "Trabajadora no seleccionada", JOptionPane.WARNING_MESSAGE);
+             return;
+        }
     
-        // 1. Obtener el objeto de servicio completo (con todos sus precios)
-        Service servicioCompleto = obtenerServicioPorNombre(nombreServicio);
+        // 1. Obtener el objeto Service completo desde el Map
+        Service servicioCompleto = serviciosMap.get(nombreServicio);
         if (servicioCompleto == null) {
-            JOptionPane.showMessageDialog(this, "Error: no se pudo cargar la información del servicio.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Error: no se pudo cargar la información del servicio.", "Error Interno", JOptionPane.ERROR_MESSAGE);
+            LOGGER.severe("Servicio seleccionado '" + nombreServicio + "' no encontrado en serviciosMap.");
             return;
         }
-        
-        double precioFinal = servicioCompleto.getPrice_corto(); // Precio por defecto
     
-        // 2. Lógica para seleccionar el precio basado en el tipo de cabello del cliente
-        if (clienteActual != null && clienteActual.getHairType() != null && !clienteActual.getHairType().isEmpty()) {
-            String tipoCabello = clienteActual.getHairType();
-            switch (tipoCabello) {
-                case "Mediano":
-                    // Si el precio para mediano es mayor a 0, úsalo. Si no, usa el de corto.
-                    precioFinal = servicioCompleto.getPrice_medio() > 0 ? servicioCompleto.getPrice_medio() : servicioCompleto.getPrice_corto();
-                    break;
-                case "Largo":
-                    precioFinal = servicioCompleto.getPrice_largo() > 0 ? servicioCompleto.getPrice_largo() : servicioCompleto.getPrice_corto();
-                    break;
-                // No se necesita 'default' porque el precio corto ya está asignado
+        double precioFinal;
+    
+        // 2. Determinar precio base según si el cliente trae producto
+        if (clienteTraeProducto && servicioCompleto.isPermiteClienteProducto()) {
+            precioFinal = servicioCompleto.getPriceClienteProducto();
+            LOGGER.fine("Usando precio con producto del cliente para " + nombreServicio + ": $" + precioFinal);
+        } else {
+            // 3. Si no trae producto (o el servicio no lo permite), usar la lógica de tipo de cabello/extensiones
+            precioFinal = servicioCompleto.getPrice_corto(); // Precio por defecto
+    
+            // Lógica para seleccionar el precio basado en el tipo de cabello del cliente (si existe cliente)
+            if (clienteActual != null && clienteActual.getHairType() != null && !clienteActual.getHairType().isEmpty()) {
+                String tipoCabello = clienteActual.getHairType();
+                LOGGER.fine("Cliente tiene tipo de cabello: " + tipoCabello);
+                switch (tipoCabello) {
+                    case "Mediano":
+                        // Si el precio para mediano es mayor a 0, úsalo. Si no, usa el de corto.
+                        if (servicioCompleto.getPrice_medio() > 0) {
+                            precioFinal = servicioCompleto.getPrice_medio();
+                            LOGGER.fine("Aplicando precio 'Mediano': $" + precioFinal);
+                        } else {
+                             LOGGER.fine("Servicio no tiene precio 'Mediano', usando 'Corto': $" + precioFinal);
+                        }
+                        break;
+                    case "Largo":
+                        if (servicioCompleto.getPrice_largo() > 0) {
+                            precioFinal = servicioCompleto.getPrice_largo();
+                            LOGGER.fine("Aplicando precio 'Largo': $" + precioFinal);
+                        } else {
+                             LOGGER.fine("Servicio no tiene precio 'Largo', usando 'Corto': $" + precioFinal);
+                        }
+                        break;
+                    default: // Incluye "Corto" o no definido
+                         LOGGER.fine("Aplicando precio 'Corto' por defecto: $" + precioFinal);
+                        break;
+                }
+            } else {
+                LOGGER.fine("No hay cliente cargado o no tiene tipo de cabello, usando precio 'Corto': $" + precioFinal);
+            }
+    
+            // Lógica para extensiones (si se detecta el servicio específico Y tiene precio > 0)
+            // Ajusta la condición si el nombre exacto es diferente
+            boolean esServicioExtensiones = nombreServicio.toLowerCase().contains("exten"); // Más flexible
+            if (esServicioExtensiones && servicioCompleto.getPrice_ext() > 0) {
+                precioFinal = servicioCompleto.getPrice_ext();
+                LOGGER.fine("Aplicando precio 'Extensiones': $" + precioFinal);
             }
         }
-        
-        // Lógica para extensiones (si se detecta el servicio específico)
-        if (nombreServicio.toLowerCase().contains("extensiones")) {
-            precioFinal = servicioCompleto.getPrice_ext() > 0 ? servicioCompleto.getPrice_ext() : servicioCompleto.getPrice_corto();
+    
+    
+        // 4. Modificar el nombre del servicio si el cliente trae producto para claridad en la tabla/factura
+        String nombreEnTabla = nombreServicio;
+        if (clienteTraeProducto) {
+            nombreEnTabla += " (Cliente)"; // Añadir indicativo
         }
     
-        // 3. Agregar a la tabla con el precio calculado
-        serviciosAgregados.add(new VentaServicio(nombreServicio, trabajadora, precioFinal));
-        tableModel.addRow(new Object[]{nombreServicio, trabajadora, new DecimalFormat("#.##").format(precioFinal)});
-        
+    
+        // 5. Agregar a la tabla y lista interna con el precio final calculado
+        serviciosAgregados.add(new VentaServicio(nombreEnTabla, trabajadora, precioFinal)); // Guardar nombre modificado
+        tableModel.addRow(new Object[]{nombreEnTabla, trabajadora, new DecimalFormat("#,##0.00").format(precioFinal)}); // Mostrar nombre modificado
+        LOGGER.info("Servicio agregado a la venta: " + nombreEnTabla + ", Trabajadora: " + trabajadora + ", Precio: $" + precioFinal);
+    
         actualizarTotales();
+    
+        // Resetear CheckBox después de agregar
+        clienteProductoCheck.setSelected(false);
+        // Opcional: Ocultar si el siguiente servicio seleccionado no lo permite
+        String nextSelectedService = (String) serviciosComboBox.getSelectedItem();
+         if (nextSelectedService != null) {
+             Service nextService = serviciosMap.get(nextSelectedService);
+             if (nextService != null && !nextService.isPermiteClienteProducto()) {
+                 clienteProductoCheck.setVisible(false);
+             }
+         } else {
+             clienteProductoCheck.setVisible(false);
+         }
     }
 
     private void eliminarServicioSeleccionado() {
@@ -720,7 +829,7 @@ public class CapelliSalesWindow extends JFrame {
         pagoPanel.add(new JLabel("Vuelto:"), gbcPago);
         vueltoLabel = new JLabel("0.00");
         gbcPago.gridx = 1;
-        gbcPago.gridy = 4; 
+        gbcPago.gridy = 4;
         gbcPago.weightx = 1.0;
         pagoPanel.add(vueltoLabel, gbcPago);
 
@@ -884,7 +993,7 @@ public class CapelliSalesWindow extends JFrame {
 
         if (!ValidationHelper.validateAndShow(this, result, "Validación de Venta")) {
             LOGGER.warning("Validación de venta falló o fue cancelada por el usuario");
-            return; 
+            return;
         }
 
         LOGGER.info("Validación de venta exitosa, procediendo a guardar...");
@@ -1013,19 +1122,23 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private int getServiceId(String serviceName, Connection conn) throws SQLException {
+        // Ajuste: si el nombre del servicio fue modificado (ej. "Corte (Cliente)"),
+        // debemos buscar el nombre original antes de consultar la BD.
+        String originalServiceName = serviceName.replace(" (Cliente)", "").trim();
+        
         String sql = "SELECT service_id FROM services WHERE name = ?";
-
+    
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, serviceName);
+            pstmt.setString(1, originalServiceName); // Usar el nombre original
             ResultSet rs = pstmt.executeQuery();
-
+    
             if (rs.next()) {
                 int serviceId = rs.getInt("service_id");
-                LOGGER.fine("Service ID encontrado: " + serviceId + " para servicio: " + serviceName);
+                LOGGER.fine("Service ID encontrado: " + serviceId + " para servicio: " + originalServiceName);
                 return serviceId;
             } else {
-                LOGGER.severe("Servicio no encontrado en BD: " + serviceName);
-                throw new SQLException("Servicio no encontrado en la base de datos: " + serviceName);
+                LOGGER.severe("Servicio no encontrado en BD: " + originalServiceName);
+                throw new SQLException("Servicio no encontrado en la base de datos: " + originalServiceName);
             }
         }
     }
@@ -1092,25 +1205,18 @@ public class CapelliSalesWindow extends JFrame {
 
         return mensaje.toString();
     }
-    
-    // MÉTODO AUXILIAR NUEVO
-    private Service obtenerServicioPorNombre(String nombre) {
-        // Esta implementación es simple para la demostración.
-        // Una implementación más eficiente cargaría todos los servicios en un Map al inicio.
-        try {
-            ServiceDAO dao = new ServiceDAO();
-            // Se asume que ServiceDAO tiene el método getAll()
-            return dao.getAll().stream()
-                    .filter(s -> s.getName().equals(nombre))
-                    .findFirst()
-                    .orElse(null);
-        } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "Error al obtener servicio por nombre: " + nombre, e);
-            JOptionPane.showMessageDialog(this, "Error de base de datos al buscar servicio: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
-            return null;
-        }
-    }
 
+    // MÉTODO AUXILIAR NUEVO Y OPTIMIZADO
+    private Service obtenerServicioPorNombre(String nombre) {
+        // Ahora consulta el Map en memoria, que se carga al inicio.
+        // Es mucho más rápido y no golpea la BD.
+        Service service = serviciosMap.get(nombre);
+        if (service == null) {
+            LOGGER.log(Level.SEVERE, "Servicio no encontrado en el Map: " + nombre);
+            JOptionPane.showMessageDialog(this, "Error: Servicio '" + nombre + "' no encontrado en la caché local.", "Error Interno", JOptionPane.ERROR_MESSAGE);
+        }
+        return service;
+    }
 
     private void limpiarVentana() {
         clienteActual = null;
@@ -1126,6 +1232,7 @@ public class CapelliSalesWindow extends JFrame {
 
     // CLASE INTERNA MODIFICADA
     private static class Cliente {
+
         private final int id;
         private final String cedula;
         private final String nombre;
@@ -1138,10 +1245,21 @@ public class CapelliSalesWindow extends JFrame {
             this.hairType = hairType;
         }
 
-        public int getId() { return id; }
-        public String getCedula() { return cedula; }
-        public String getNombre() { return nombre; }
-        public String getHairType() { return hairType; } // <-- NUEVO GETTER
+        public int getId() {
+            return id;
+        }
+
+        public String getCedula() {
+            return cedula;
+        }
+
+        public String getNombre() {
+            return nombre;
+        }
+
+        public String getHairType() {
+            return hairType;
+        } // <-- NUEVO GETTER
     }
 
     private static class VentaServicio {
@@ -1175,7 +1293,7 @@ public class CapelliSalesWindow extends JFrame {
 
     public static void main(String[] args) {
         LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");
-        AppConfig.printConfiguration(); 
+        AppConfig.printConfiguration();
 
         Database.initialize();
 
