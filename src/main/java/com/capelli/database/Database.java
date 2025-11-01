@@ -30,6 +30,12 @@ public class Database {
         Connection conn = null;
         try {
             conn = DriverManager.getConnection(getDatabaseUrl());
+
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("PRAGMA foreign_keys = ON;");
+                LOGGER.fine("PRAGMA foreign_keys = ON ejecutado.");
+            }
+
             LOGGER.fine("Conexión a base de datos establecida: " + getDatabaseUrl());
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error al conectar a la base de datos", e);
@@ -128,7 +134,7 @@ public class Database {
                 + "    birth_date TEXT,\n"
                 + "    last_dye_date TEXT,\n"
                 + "    last_chemical_date TEXT,\n"
-                + "    last_keratin_date TEXT,\n" // Corregido de 'last_keratin_date'
+                + "    last_keratin_date TEXT,\n" 
                 + "    extensions_type TEXT,\n"
                 + "    last_extensions_maintenance_date TEXT\n"
                 + ");";
@@ -220,9 +226,21 @@ public class Database {
 
             stmt.execute(sqlTips);
             LOGGER.info("Tabla 'tips' verificada/creada");
+            
+            try {
+                stmt.execute("ALTER TABLE sales ADD COLUMN bcv_rate_at_sale REAL DEFAULT 0.0");
+                LOGGER.info("Columna 'bcv_rate_at_sale' agregada a la tabla 'sales'.");
+            } catch (SQLException e) {
+                // Esto es normal si la columna ya existe
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'bcv_rate_at_sale' ya existe en 'sales'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales'", e);
+                }
+            }
 
             LOGGER.info("Agregando/Actualizando lista de servicios...");
-            addOrUpdateService(conn, "Lavado", 10.0, 0.0, 0.0, 0.0, true, 8.0); // Permite, precio 8 si trae
+            addOrUpdateService(conn, "Lavado", 10.0, 0.0, 0.0, 0.0, true, 8.0); 
             addOrUpdateService(conn, "Hidratación + Secado", 20.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Secado", 12.0, 15.0, 20.0, 35.0, false, 0.0);
             addOrUpdateService(conn, "Ondas", 45.0, 0.0, 0.0, 0.0, false, 0.0);
@@ -230,9 +248,9 @@ public class Database {
             addOrUpdateService(conn, "Corte Elaborado", 25.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Maquillaje", 60.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Peinados", 40.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Color (Tinte)", 50.0, 0.0, 0.0, 0.0, false, 0.0); // Asumiendo que este es el servicio COMPLETO
+            addOrUpdateService(conn, "Color (Tinte)", 50.0, 0.0, 0.0, 0.0, false, 0.0); 
             addOrUpdateService(conn, "Mechas", 80.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Aplicación de Tinte", 30.0, 0.0, 0.0, 0.0, true, 25.0); // Permite, precio 25 si trae
+            addOrUpdateService(conn, "Aplicación de Tinte", 30.0, 0.0, 0.0, 0.0, true, 25.0); 
             addOrUpdateService(conn, "Cejas", 10.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Bozo", 12.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Manicure Tradicional", 10.0, 0.0, 0.0, 0.0, false, 0.0);
@@ -241,10 +259,9 @@ public class Database {
             addOrUpdateService(conn, "Mantenimiento", 120.0, 0.0, 0.0, 0.0, false, 0.0);
             LOGGER.info("Lista de servicios actualizada.");
 
-            // ===== INICIO DE PRECARGA DE TRABAJADORAS Y CUENTAS =====
+        
             LOGGER.info("Agregando/Actualizando lista de trabajadoras y cuentas...");
 
-            // Datos extraídos de capelli_salon.db
             addOrUpdateTrabajadora(conn, "Dayana", "Govea", "V", "18522231", "04127915851");
             addOrUpdateCuenta(conn, "18522231", "Banco Provincial", "Corriente", "01080511200100296908", true);
 
@@ -267,17 +284,16 @@ public class Database {
             addOrUpdateCuenta(conn, "24342800", "Banco Provincial", "Ahorro", "01080302190200068019", true);
 
             addOrUpdateTrabajadora(conn, "Maria", "Diaz", "V", "7774946", "04246464683");
-            // No se encontraron cuentas para Maria Diaz en el archivo .db
+           
 
             addOrUpdateTrabajadora(conn, "Rosa Maria", "Gutierrez", "V", "9200133", "04246889337");
-            // Múltiples cuentas para Rosa Maria
+         
             addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340946380001307454", true); // Asignada como principal
             addOrUpdateCuenta(conn, "9200133", "Banco Nacional de Crédito (BNC)", "Corriente", "01160148150014749505", false);
             addOrUpdateCuenta(conn, "9200133", "Bancamiga", "Corriente", "01720112381125322600", false);
             addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340077650773172568", false);
 
             LOGGER.info("Lista de trabajadoras y cuentas actualizada.");
-            // ===== FIN DE PRECARGA =====
 
 
             LOGGER.info("Base de datos inicializada correctamente");

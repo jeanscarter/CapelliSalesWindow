@@ -94,12 +94,20 @@ public class VentaValidator {
         CommonValidators.validateNotEmpty(tipoDescuento, "Tipo de descuento", result);
         
         // 9. Validar monto pagado (excepto para cuentas por cobrar)
+        
+        // --- INICIO DE LA CORRECCIÓN ---
+        // Se define una tolerancia de 0.01 (1 centavo) para errores de punto flotante.
+        double Epsilon = 0.01;
+        
         if (!"Cuenta por Cobrar".equals(tipoDescuento)) {
-            if (montoPagado < total) {
+            // Se resta el Epsilon al total. Si el monto pagado es *aún* menor, es un error.
+            // Esto permite que 120.00 sea >= 120.00, pero también que 119.999 sea >= 120.00
+            if (montoPagado < (total - Epsilon)) { 
                 result.addError("Monto pagado", 
                     String.format("El monto pagado (%.2f) es insuficiente. Total: %.2f", 
                         montoPagado, total));
             }
+        // --- FIN DE LA CORRECCIÓN ---
         } else {
             // Si es cuenta por cobrar, agregar advertencia
             result.addWarning("Método de pago", 

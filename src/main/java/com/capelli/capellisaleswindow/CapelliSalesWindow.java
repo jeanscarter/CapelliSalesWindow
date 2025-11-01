@@ -1048,10 +1048,9 @@ public class CapelliSalesWindow extends JFrame {
             conn.setAutoCommit(false);
 
             String sqlSale = "INSERT INTO sales (client_id, subtotal, discount_type, "
-                    + "discount_amount, total, payment_method, currency, payment_destination) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "discount_amount, total, payment_method, currency, payment_destination, bcv_rate_at_sale) " 
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"; 
 
-            // --- INICIO CORRECCIÓN SQLITE ---
             // 1. Preparar el PreparedStatement SIN pedir generated keys
             try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
                 if (clienteActual != null) {
@@ -1073,6 +1072,8 @@ public class CapelliSalesWindow extends JFrame {
                 } else {
                     pstmt.setNull(8, java.sql.Types.VARCHAR);
                 }
+                
+                pstmt.setDouble(9, tasaBcv); 
 
                 pstmt.executeUpdate();
             }

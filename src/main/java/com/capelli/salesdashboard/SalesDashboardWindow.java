@@ -114,23 +114,22 @@ public class SalesDashboardWindow extends JFrame {
         LOGGER.info("Cargando datos de ventas...");
         salesTableModel.setRowCount(0);
         
-        // SQL CORREGIDO: Usa 'trabajadoras' en lugar de 'employees'
         String sql = "SELECT " +
                      "    s.sale_id, " +
                      "    strftime('%d/%m/%Y %H:%M', s.sale_date, 'localtime') as sale_date, " +
                      "    COALESCE(c.full_name, 'Cliente Genérico') as client_name, " +
-                     "    ser.name as service_name, " +
-                     "    (t.nombres || ' ' || t.apellidos) as employee_name, " + // ✅ CORREGIDO
+                     "    COALESCE(ser.name, 'SERVICIO BORRADO') as service_name, " + 
+                     "    COALESCE((t.nombres || ' ' || t.apellidos), 'TRABAJADORA BORRADA') as employee_name, " + 
                      "    si.price_at_sale, " +
                      "    s.discount_amount, " +
                      "    s.total " +
                      "FROM sales s " +
-                     "INNER JOIN sale_items si ON s.sale_id = si.sale_id " +
-                     "INNER JOIN services ser ON si.service_id = ser.service_id " +
-                     "INNER JOIN trabajadoras t ON si.employee_id = t.id " + // ✅ CORREGIDO
+                     "LEFT JOIN sale_items si ON s.sale_id = si.sale_id " + 
+                     "LEFT JOIN services ser ON si.service_id = ser.service_id " + 
+                     "LEFT JOIN trabajadoras t ON si.employee_id = t.id " + 
                      "LEFT JOIN clients c ON s.client_id = c.client_id " +
                      "ORDER BY s.sale_date DESC, s.sale_id DESC " +
-                     "LIMIT 1000"; // Limitamos a 1000 registros para performance
+                     "LIMIT 1000";
 
         try (Connection conn = Database.connect();
              Statement stmt = conn.createStatement();
@@ -178,13 +177,12 @@ public class SalesDashboardWindow extends JFrame {
     private void loadTopSeller() {
         LOGGER.info("Calculando trabajadora con más servicios...");
         
-        // SQL CORREGIDO: Usa 'trabajadoras' en lugar de 'employees'
-        String sql = "SELECT " +
-                     "    (t.nombres || ' ' || t.apellidos) as full_name, " + // ✅ CORREGIDO
+       String sql = "SELECT " +
+                     "    (t.nombres || ' ' || t.apellidos) as full_name, " + 
                      "    COUNT(si.sale_item_id) as services_count " +
-                     "FROM trabajadoras t " + // ✅ CORREGIDO
-                     "INNER JOIN sale_items si ON t.id = si.employee_id " + // ✅ CORREGIDO
-                     "GROUP BY t.id, t.nombres, t.apellidos " + // ✅ CORREGIDO
+                     "FROM trabajadoras t " + 
+                     "LEFT JOIN sale_items si ON t.id = si.employee_id " + 
+                     "GROUP BY t.id, t.nombres, t.apellidos " + 
                      "ORDER BY services_count DESC " +
                      "LIMIT 1";
 
