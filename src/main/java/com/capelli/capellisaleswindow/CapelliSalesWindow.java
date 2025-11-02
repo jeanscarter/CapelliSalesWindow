@@ -77,7 +77,7 @@ public class CapelliSalesWindow extends JFrame {
     private JPanel pagoMovilPanel;
 
     private final List<VentaServicio> serviciosAgregados = new ArrayList<>();
-    private Cliente clienteActual = null;
+    private ClienteActivo clienteActual = null;
 
     private JCheckBox clienteProductoCheck;
     private Map<String, Service> serviciosMap = new HashMap<>(); 
@@ -432,7 +432,6 @@ public class CapelliSalesWindow extends JFrame {
         gbcServicios.weightx = 1.0;
         serviciosPanel.add(trabajadorasComboBox, gbcServicios);
 
-        // --- NUEVO: CheckBox Cliente Trae Producto ---
         clienteProductoCheck = new JCheckBox("Cliente trae producto");
         clienteProductoCheck.setVisible(false); // Oculto por defecto
         gbcServicios.gridx = 0;
@@ -440,7 +439,6 @@ public class CapelliSalesWindow extends JFrame {
         gbcServicios.gridwidth = 2; // Ocupa ambas columnas
         gbcServicios.anchor = GridBagConstraints.WEST; // Alinear a la izquierda
         serviciosPanel.add(clienteProductoCheck, gbcServicios);
-        // --- FIN NUEVO ---
 
         JButton agregarBtn = new JButton("Agregar Servicio");
         gbcServicios.gridx = 0;
@@ -463,7 +461,6 @@ public class CapelliSalesWindow extends JFrame {
         gbc.gridy = 1;
         panel.add(serviciosPanel, gbc);
 
-        // --- NUEVO: Listener para ComboBox de Servicios ---
         serviciosComboBox.addActionListener(e -> {
             String selectedServiceName = (String) serviciosComboBox.getSelectedItem();
             if (selectedServiceName != null) {
@@ -479,16 +476,10 @@ public class CapelliSalesWindow extends JFrame {
                 clienteProductoCheck.setSelected(false);
             }
         });
-        // --- FIN NUEVO LISTENER ---
 
-        // --- NUEVO: Listener para el CheckBox ---
         clienteProductoCheck.addActionListener(e -> {
-            // Podrías agregar lógica aquí si necesitaras recalcular algo
-            // inmediatamente al marcar/desmarcar, pero no es estrictamente
-            // necesario ya que el precio se calcula al agregar.
             LOGGER.fine("Checkbox 'Cliente trae producto' cambiado a: " + clienteProductoCheck.isSelected());
         });
-        // --- FIN NUEVO LISTENER CHECKBOX ---
 
         JButton verReporteDiarioBtn = new JButton("Ver Reporte del Día");
         gbcCliente.gridx = 0;
@@ -571,7 +562,6 @@ public class CapelliSalesWindow extends JFrame {
 
         ValidationHelper.resetFieldBorder(cedulaNumeroField);
 
-        // MODIFICADO: Se añade hair_type a la consulta
         String sql = "SELECT client_id, full_name, hair_type FROM clients WHERE cedula = ?";
         try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
@@ -579,15 +569,13 @@ public class CapelliSalesWindow extends JFrame {
             ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
-                // MODIFICADO: Se crea el objeto Cliente con el nuevo dato
-                clienteActual = new Cliente(
+                clienteActual = new ClienteActivo(
                         rs.getInt("client_id"),
                         cedula,
                         rs.getString("full_name"),
-                        rs.getString("hair_type") // <-- Se obtiene el dato
+                        rs.getString("hair_type") 
                 );
 
-                // MODIFICADO: Se muestra el tipo de cabello para confirmación
                 String hairTypeInfo = clienteActual.getHairType();
                 String infoCliente = "Nombre: " + clienteActual.getNombre()
                         + " (Cabello: " + (hairTypeInfo != null && !hairTypeInfo.isEmpty() ? hairTypeInfo : "No definido") + ")";
@@ -979,17 +967,13 @@ public class CapelliSalesWindow extends JFrame {
 
         String moneda = monedaDolar.isSelected() ? "$" : "Bs";
 
-        // --- INICIO CORRECCIÓN DE ERROR ---
-        // El total (calculado desde subtotal, descuento y propina) SIEMPRE está en Dólares.
         double totalEnDolares = total;
-        double montoPagadoEnDolares = montoPagado; // Asumir que el monto pagado está en $
+        double montoPagadoEnDolares = montoPagado; 
 
         if (moneda.equals("Bs")) {
-            // Si la moneda es "Bs", SÓLO el monto pagado debe convertirse a Dólares
-            // para la validación de pago. El 'totalEnDolares' ya es correcto.
+
             montoPagadoEnDolares = montoPagado / tasaBcv;
         }
-        // --- FIN CORRECCIÓN DE ERROR ---
 
 
         ValidationResult result = VentaValidator.validateVenta(
@@ -997,8 +981,8 @@ public class CapelliSalesWindow extends JFrame {
                 subtotal,
                 descuento,
                 propina,
-                totalEnDolares, // <- Este es el total en $ (Esperado: 25.00)
-                montoPagadoEnDolares, // <- Este es el monto pagado en $ (Actual: 25.00)
+                totalEnDolares, 
+                montoPagadoEnDolares, 
                 metodoPago,
                 tipoDesc
         );
@@ -1088,7 +1072,6 @@ public class CapelliSalesWindow extends JFrame {
                     throw new SQLException("Error al obtener el ID de la venta generada (last_insert_rowid falló)");
                 }
             }
-            // --- FIN CORRECCIÓN SQLITE ---
 
             String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale) "
                     + "VALUES (?, ?, ?, ?)";
@@ -1171,8 +1154,6 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private int getServiceId(String serviceName, Connection conn) throws SQLException {
-        // Ajuste: si el nombre del servicio fue modificado (ej. "Corte (Cliente)"),
-        // debemos buscar el nombre original antes de consultar la BD.
         String originalServiceName = serviceName.replace(" (Cliente)", "").trim();
         
         String sql = "SELECT service_id FROM services WHERE name = ?";
@@ -1192,13 +1173,8 @@ public class CapelliSalesWindow extends JFrame {
         }
     }
 
-    // =========================================================================
-    // --- MÉTODO CORREGIDO ---
-    // =========================================================================
-    
     /**
      * Obtiene el ID de la trabajadora basado en el nombre completo.
-     * CORREGIDO: Busca en la lista 'trabajadorasList' en lugar de dividir el string.
      */
     private int getEmployeeIdByName(String nombreCompleto, Connection conn) throws SQLException {
         // Iterar sobre la lista de trabajadoras cargada en memoria
@@ -1207,16 +1183,11 @@ public class CapelliSalesWindow extends JFrame {
                 return t.getId(); // Encontrado
             }
         }
-        
-        // Si no se encuentra en la lista (esto no debería pasar si la lista está sincronizada)
-        // Lanza el error que viste
+
         throw new SQLException("Trabajadora no encontrada: " + nombreCompleto 
                 + " (Error: no se encontró en la lista 'trabajadorasList' de la aplicación)");
     }
-    // =========================================================================
-    // --- FIN DE LA CORRECCIÓN ---
-    // =========================================================================
-
+    
     private String construirMensajeExito(long saleId, double total, String moneda,
             double montoPagado, double tasaBcv) {
         DecimalFormat df = new DecimalFormat("#,##0.00");
@@ -1253,7 +1224,6 @@ public class CapelliSalesWindow extends JFrame {
         return mensaje.toString();
     }
 
-    // MÉTODO AUXILIAR NUEVO Y OPTIMIZADO
     private Service obtenerServicioPorNombre(String nombre) {
         // Ahora consulta el Map en memoria, que se carga al inicio.
         // Es mucho más rápido y no golpea la BD.
@@ -1276,67 +1246,6 @@ public class CapelliSalesWindow extends JFrame {
         montoPagadoField.setText("0.00");
         descuentoComboBox.setSelectedIndex(0);
         actualizarTotales();
-    }
-
-    // CLASE INTERNA MODIFICADA
-    private static class Cliente {
-
-        private final int id;
-        private final String cedula;
-        private final String nombre;
-        private final String hairType; // <-- NUEVO CAMPO
-
-        public Cliente(int id, String cedula, String nombre, String hairType) {
-            this.id = id;
-            this.cedula = cedula;
-            this.nombre = nombre;
-            this.hairType = hairType;
-        }
-
-        public int getId() {
-            return id;
-        }
-
-        public String getCedula() {
-            return cedula;
-        }
-
-        public String getNombre() {
-            return nombre;
-        }
-
-        public String getHairType() {
-            return hairType;
-        } // <-- NUEVO GETTER
-    }
-
-    private static class VentaServicio {
-
-        private final String servicio;
-        private final String trabajadora;
-        private double precio;
-
-        public VentaServicio(String servicio, String trabajadora, double precio) {
-            this.servicio = servicio;
-            this.trabajadora = trabajadora;
-            this.precio = precio;
-        }
-
-        public String getServicio() {
-            return servicio;
-        }
-
-        public String getTrabajadora() {
-            return trabajadora;
-        }
-
-        public double getPrecio() {
-            return precio;
-        }
-
-        public void setPrecio(double precio) {
-            this.precio = precio;
-        }
     }
 
     public static void main(String[] args) {
@@ -1362,49 +1271,5 @@ public class CapelliSalesWindow extends JFrame {
             window.setVisible(true);
             LOGGER.info("Ventana principal mostrada");
         });
-    }
-
-    private static class SimpleDocumentListener implements javax.swing.event.DocumentListener {
-
-        private final Runnable callback;
-
-        public SimpleDocumentListener(Runnable callback) {
-            this.callback = callback;
-        }
-
-        @Override
-        public void insertUpdate(javax.swing.event.DocumentEvent e) {
-            callback.run();
-        }
-
-        @Override
-        public void removeUpdate(javax.swing.event.DocumentEvent e) {
-            callback.run();
-        }
-
-        @Override
-        public void changedUpdate(javax.swing.event.DocumentEvent e) {
-            callback.run();
-        }
-    }
-    
-    /**
-     * Filtro para permitir solo entradas numéricas en un JTextField.
-     * Copiado de TrabajadoraDialog.
-     */
-    private static class NumericFilter extends javax.swing.text.DocumentFilter {
-        @Override
-        public void insertString(FilterBypass fb, int offset, String string, javax.swing.text.AttributeSet attr) throws javax.swing.text.BadLocationException {
-            if (string.matches("[0-9]+")) {
-                super.insertString(fb, offset, string, attr);
-            }
-        }
-
-        @Override
-        public void replace(FilterBypass fb, int offset, int length, String text, javax.swing.text.AttributeSet attrs) throws javax.swing.text.BadLocationException {
-            if (text.matches("[0-9]+")) {
-                super.replace(fb, offset, length, text, attrs);
-            }
-        }
     }
 }

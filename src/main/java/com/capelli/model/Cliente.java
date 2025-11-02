@@ -1,11 +1,3 @@
-/**
- * CORRECCIÓN: Clase Cliente - Typo en lastKeratinaDate
- * 
- * PROBLEMA:
- * ❌ lastKeratin Date (con espacio) - ERROR
- * ✅ lastKeratinaDate (sin espacio) - CORRECTO
- */
-
 package com.capelli.model;
 
 import java.io.Serializable;
@@ -18,38 +10,21 @@ public class Cliente implements Serializable {
     private static final long serialVersionUID = 1L;
     private static final Logger LOGGER = Logger.getLogger(Cliente.class.getName());
     
-    // ==========================================
-    // ATRIBUTOS - DATOS BÁSICOS
-    // ==========================================
-    
     private int clientId;
     private String cedula;
     private String fullName;
     private String address;
     private String phone;
     
-    // ==========================================
-    // ATRIBUTOS - DATOS DE CABELLO
-    // ==========================================
-    
     private String hairType;
     private LocalDate birthDate;
     private LocalDate lastDyeDate;
     private LocalDate lastChemicalDate;
-    
-    // ✅ CORRECCIÓN: Sin espacio
-    private LocalDate lastKeratinaDate;  // ← BIEN (era: lastKeratin Date)
-    
-    // ==========================================
-    // ATRIBUTOS - DATOS DE EXTENSIONES
-    // ==========================================
+
+    private LocalDate lastKeratinaDate;  
     
     private String extensionsType;
     private LocalDate lastExtensionsMaintenanceDate;
-    
-    // ==========================================
-    // CONSTRUCTORES
-    // ==========================================
     
     public Cliente() {
     }
@@ -71,7 +46,7 @@ public class Cliente implements Serializable {
             LocalDate birthDate,
             LocalDate lastDyeDate,
             LocalDate lastChemicalDate,
-            LocalDate lastKeratinaDate,  // ✅ CORRECCIÓN
+            LocalDate lastKeratinaDate, 
             String extensionsType,
             LocalDate lastExtensionsMaintenanceDate) {
         
@@ -84,14 +59,10 @@ public class Cliente implements Serializable {
         this.birthDate = birthDate;
         this.lastDyeDate = lastDyeDate;
         this.lastChemicalDate = lastChemicalDate;
-        this.lastKeratinaDate = lastKeratinaDate;  // ✅ CORRECCIÓN
+        this.lastKeratinaDate = lastKeratinaDate;  
         this.extensionsType = extensionsType;
         this.lastExtensionsMaintenanceDate = lastExtensionsMaintenanceDate;
     }
-    
-    // ==========================================
-    // GETTERS
-    // ==========================================
     
     public int getClientId() {
         return clientId;
@@ -129,9 +100,9 @@ public class Cliente implements Serializable {
         return lastChemicalDate;
     }
     
-    // ✅ CORRECCIÓN: Aquí estava el typo
+
     public LocalDate getLastKeratinaDate() {
-        return lastKeratinaDate;  // ← Ahora coincide con la variable
+        return lastKeratinaDate;  
     }
     
     public String getExtensionsType() {
@@ -142,9 +113,6 @@ public class Cliente implements Serializable {
         return lastExtensionsMaintenanceDate;
     }
     
-    // ==========================================
-    // SETTERS
-    // ==========================================
     
     public void setClientId(int clientId) {
         this.clientId = clientId;
@@ -189,7 +157,6 @@ public class Cliente implements Serializable {
         this.lastChemicalDate = lastChemicalDate;
     }
     
-    // ✅ CORRECCIÓN: Nombre consistente
     public void setLastKeratinaDate(LocalDate lastKeratinaDate) {
         this.lastKeratinaDate = lastKeratinaDate;  // ← Ahora coincide
     }
@@ -202,9 +169,6 @@ public class Cliente implements Serializable {
         this.lastExtensionsMaintenanceDate = lastExtensionsMaintenanceDate;
     }
     
-    // ==========================================
-    // MÉTODOS DE UTILIDAD
-    // ==========================================
     
     @Override
     public String toString() {
@@ -331,8 +295,7 @@ public class Cliente implements Serializable {
         this.lastChemicalDate = LocalDate.now();
         LOGGER.info("Último químico actualizado para cliente: " + fullName);
     }
-    
-    // ✅ CORRECCIÓN: Ahora coincide el nombre
+
     public void updateLastKeratinaDate() {
         this.lastKeratinaDate = LocalDate.now();
         LOGGER.info("Última keratina actualizada para cliente: " + fullName);
@@ -342,10 +305,6 @@ public class Cliente implements Serializable {
         this.lastExtensionsMaintenanceDate = LocalDate.now();
         LOGGER.info("Último mantenimiento de extensiones actualizado para cliente: " + fullName);
     }
-    
-    // ==========================================
-    // VALIDACIONES LOCALES
-    // ==========================================
     
     public boolean validateBasicData() {
         return cedula != null && !cedula.isEmpty() &&
@@ -407,9 +366,6 @@ public class Cliente implements Serializable {
     }
 }
 
-/**
- * EXCEPCIONES
- */
 
 class ClienteException extends Exception {
     public ClienteException(String message) {
