@@ -30,7 +30,10 @@ public class ServiceDAO {
      */
     public List<Service> getAll() throws SQLException {
         List<Service> servicesList = new ArrayList<>();
-        String sql = "SELECT service_id, name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto FROM services ORDER BY name";
+        // AÑADIDO: service_category
+        String sql = "SELECT service_id, name, price_corto, price_medio, price_largo, price_ext, "
+                 + "permite_cliente_producto, price_cliente_producto, service_category "
+                 + "FROM services ORDER BY name";
 
         try (Connection conn = Database.connect(); 
              Statement stmt = conn.createStatement(); 
@@ -46,6 +49,7 @@ public class ServiceDAO {
                 service.setPrice_ext(rs.getDouble("price_ext"));
                 service.setPermiteClienteProducto(rs.getBoolean("permite_cliente_producto"));
                 service.setPriceClienteProducto(rs.getDouble("price_cliente_producto"));
+                service.setService_category(rs.getString("service_category")); // AÑADIDO
                 servicesList.add(service);
             }
         }
@@ -55,7 +59,10 @@ public class ServiceDAO {
     public void save(Service service) throws SQLException {
         if (service.getId() == 0) {
        
-            String sql = "INSERT INTO services(name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto) VALUES(?, ?, ?, ?, ?, ?, ?)";
+            // AÑADIDO: service_category
+            String sql = "INSERT INTO services(name, price_corto, price_medio, price_largo, price_ext, "
+                       + "permite_cliente_producto, price_cliente_producto, service_category) "
+                       + "VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
             try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, service.getName());
                 pstmt.setDouble(2, service.getPrice_corto());
@@ -64,11 +71,16 @@ public class ServiceDAO {
                 pstmt.setDouble(5, service.getPrice_ext());
                 pstmt.setBoolean(6, service.isPermiteClienteProducto()); 
                 pstmt.setDouble(7, service.getPriceClienteProducto());  
+                pstmt.setString(8, service.getService_category()); // AÑADIDO
                 pstmt.executeUpdate();
             }
         } else {
        
-            String sql = "UPDATE services SET name = ?, price_corto = ?, price_medio = ?, price_largo = ?, price_ext = ?, permite_cliente_producto = ?, price_cliente_producto = ? WHERE service_id = ?";
+            // AÑADIDO: service_category
+            String sql = "UPDATE services SET name = ?, price_corto = ?, price_medio = ?, price_largo = ?, "
+                       + "price_ext = ?, permite_cliente_producto = ?, price_cliente_producto = ?, "
+                       + "service_category = ? "
+                       + "WHERE service_id = ?";
             try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, service.getName());
                 pstmt.setDouble(2, service.getPrice_corto());
@@ -77,7 +89,8 @@ public class ServiceDAO {
                 pstmt.setDouble(5, service.getPrice_ext());
                 pstmt.setBoolean(6, service.isPermiteClienteProducto()); 
                 pstmt.setDouble(7, service.getPriceClienteProducto());    
-                pstmt.setInt(8, service.getId());
+                pstmt.setString(8, service.getService_category()); // AÑADIDO
+                pstmt.setInt(9, service.getId()); // CAMBIO DE ÍNDICE
                 pstmt.executeUpdate();
             }
         }

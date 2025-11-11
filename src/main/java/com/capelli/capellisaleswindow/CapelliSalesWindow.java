@@ -32,7 +32,7 @@ import java.util.Objects;
 import javax.imageio.ImageIO;
 import javax.swing.event.TableModelEvent;
 import com.capelli.config.AppConfig;
-import com.capelli.config.ConfigManager; // IMPORTAR
+import com.capelli.config.ConfigManager;
 import com.capelli.database.ServiceDAO;
 import com.capelli.model.Service;
 import com.capelli.servicemanagement.ServiceManagementWindow;
@@ -42,9 +42,14 @@ import java.sql.Timestamp;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import com.capelli.validation.*;
+import com.capelli.payroll.CommissionManagementWindow;
+import com.capelli.payroll.PayrollWindow;
+import com.capelli.reports.FinancialReportWindow;
+
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
+import net.miginfocom.swing.MigLayout; 
 
 public class CapelliSalesWindow extends JFrame {
 
@@ -394,46 +399,6 @@ public class CapelliSalesWindow extends JFrame {
         
         cedulaNumeroField.addActionListener(e -> buscarClienteEnDB());
 
-        historicalSaleCheck = new JCheckBox("Registrar Venta Histórica");
-        gbcCliente.gridx = 0;
-        gbcCliente.gridy = 5; 
-        gbcCliente.gridwidth = 3;
-        clientePanel.add(historicalSaleCheck, gbcCliente);
-        
-        dateSpinner = new JSpinner(new SpinnerDateModel());
-        dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
-        dateSpinner.setEnabled(false);
-        gbcCliente.gridx = 0;
-        gbcCliente.gridy = 6;
-        gbcCliente.gridwidth = 1;
-        clientePanel.add(new JLabel("Fecha Venta:"), gbcCliente);
-        gbcCliente.gridx = 1;
-        gbcCliente.gridy = 6;
-        gbcCliente.gridwidth = 2;
-        clientePanel.add(dateSpinner, gbcCliente);
-        
-        manualBcvField = new JTextField("0.00");
-        ((javax.swing.text.AbstractDocument) manualBcvField.getDocument()).setDocumentFilter(new NumericFilter()); 
-        manualBcvField.setEnabled(false);
-        gbcCliente.gridx = 0;
-        gbcCliente.gridy = 7;
-        gbcCliente.gridwidth = 1;
-        clientePanel.add(new JLabel("Tasa Manual (Bs/$):"), gbcCliente);
-        gbcCliente.gridx = 1;
-        gbcCliente.gridy = 7;
-        gbcCliente.gridwidth = 2;
-        clientePanel.add(manualBcvField, gbcCliente);
-        
-        manualBcvField.getDocument().addDocumentListener(new SimpleDocumentListener(this::actualizarTasaManual));
-        historicalSaleCheck.addActionListener(e -> toggleHistoricalMode());
-
-        tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-        gbcCliente.gridx = 0;
-        gbcCliente.gridy = 4; 
-        gbcCliente.gridwidth = 3; 
-        gbcCliente.anchor = GridBagConstraints.CENTER;
-        clientePanel.add(tasaLabel, gbcCliente);
-
         gbc.gridx = 0;
         gbc.gridy = 0;
         panel.add(clientePanel, gbc);
@@ -451,20 +416,16 @@ public class CapelliSalesWindow extends JFrame {
         clientePanel.add(buscarClienteBtn, gbcCliente);
         buscarClienteBtn.addActionListener(e -> buscarClienteEnDB());
 
+        // --- PANEL DE BOTONES DE GESTIÓN ---
+        // (Reorganizado para mejor agrupación)
+        JPanel managementPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 0", "[grow,fill][grow,fill]"));
+        managementPanel.setBorder(new TitledBorder("Módulos de Gestión"));
+
         JButton gestionarClientesBtn = new JButton("Gestionar Clientes");
-        gbcCliente.gridx = 1;
-        gbcCliente.gridy = 1;
-        gbcCliente.gridwidth = 1;
-        gbcCliente.weightx = 0.5;
-        clientePanel.add(gestionarClientesBtn, gbcCliente);
         gestionarClientesBtn.addActionListener(e -> new ClientManagementWindow().setVisible(true));
+        managementPanel.add(gestionarClientesBtn, "sg btn");
 
         JButton gestionarServiciosBtn = new JButton("Gestionar Servicios");
-        gbcCliente.gridx = 2;
-        gbcCliente.gridy = 2;
-        gbcCliente.gridwidth = 1;
-        clientePanel.add(gestionarServiciosBtn, gbcCliente);
-
         gestionarServiciosBtn.addActionListener(e -> {
             ServiceManagementWindow serviceWindow = new ServiceManagementWindow();
             serviceWindow.setVisible(true);
@@ -475,14 +436,9 @@ public class CapelliSalesWindow extends JFrame {
                 }
             });
         });
+        managementPanel.add(gestionarServiciosBtn, "sg btn");
 
         JButton gestionarTrabajadorasBtn = new JButton("Gestionar Trabajadoras");
-        gbcCliente.gridx = 2;
-        gbcCliente.gridy = 1;
-        gbcCliente.gridwidth = 1;
-        gbcCliente.weightx = 0.5;
-        clientePanel.add(gestionarTrabajadorasBtn, gbcCliente);
-
         gestionarTrabajadorasBtn.addActionListener(e -> {
             JFrame frame = new JFrame("Gestión de Trabajadoras");
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -490,7 +446,6 @@ public class CapelliSalesWindow extends JFrame {
             frame.pack();
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
-
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent windowEvent) {
@@ -498,17 +453,43 @@ public class CapelliSalesWindow extends JFrame {
                 }
             });
         });
+        managementPanel.add(gestionarTrabajadorasBtn, "sg btn");
+
+        // --- NUEVO: Botón Gestionar Comisiones ---
+        JButton gestionarComisionesBtn = new JButton("Gestionar Comisiones");
+        gestionarComisionesBtn.addActionListener(e -> new CommissionManagementWindow().setVisible(true));
+        managementPanel.add(gestionarComisionesBtn, "sg btn, wrap"); // wrap para saltar línea
+
+        // --- NUEVO: Botón Calcular Nómina ---
+        JButton calcularNominaBtn = new JButton("Calcular Nómina");
+        calcularNominaBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        calcularNominaBtn.addActionListener(e -> new PayrollWindow().setVisible(true));
+        managementPanel.add(calcularNominaBtn, "sg btn");
+
+        // --- NUEVO: Botón Reporte Financiero ---
+        JButton reporteFinancieroBtn = new JButton("Reporte Financiero");
+        reporteFinancieroBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        reporteFinancieroBtn.addActionListener(e -> new FinancialReportWindow().setVisible(true));
+        managementPanel.add(reporteFinancieroBtn, "sg btn");
+
+        // Añadir el panel de gestión al panel de cliente
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 2; // Ajustar gridy según tu layout
+        gbcCliente.gridwidth = 3;
+        clientePanel.add(managementPanel, gbcCliente);
+        // --- FIN PANEL DE BOTONES ---
+
 
         nombreClienteLabel = new JLabel("Nombre: No cargado");
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 2;
+        gbcCliente.gridy = 3; // Ajustar gridy
         gbcCliente.gridwidth = 2;
         clientePanel.add(nombreClienteLabel, gbcCliente);
 
         JButton verReportesBtn = new JButton("Ver Reportes de Ventas");
         verReportesBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 3;
+        gbcCliente.gridy = 4; // Ajustar gridy
         gbcCliente.gridwidth = 2;
         gbcCliente.insets = new Insets(15, 5, 5, 5);
         clientePanel.add(verReportesBtn, gbcCliente);
@@ -520,10 +501,50 @@ public class CapelliSalesWindow extends JFrame {
         correlativeLabel = new JLabel("Factura N°: " + currentCorrelative);
         correlativeLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         gbcCliente.gridx = 2;
-        gbcCliente.gridy = 3;
+        gbcCliente.gridy = 4; // Ajustar gridy
         gbcCliente.gridwidth = 1;
         gbcCliente.anchor = GridBagConstraints.EAST;
         clientePanel.add(correlativeLabel, gbcCliente);
+
+        tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 5; // Ajustar gridy
+        gbcCliente.gridwidth = 3; 
+        gbcCliente.anchor = GridBagConstraints.CENTER;
+        clientePanel.add(tasaLabel, gbcCliente);
+
+        historicalSaleCheck = new JCheckBox("Registrar Venta Histórica");
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 6; // Ajustar gridy
+        gbcCliente.gridwidth = 3;
+        clientePanel.add(historicalSaleCheck, gbcCliente);
+        
+        dateSpinner = new JSpinner(new SpinnerDateModel());
+        dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
+        dateSpinner.setEnabled(false);
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 7;
+        gbcCliente.gridwidth = 1;
+        clientePanel.add(new JLabel("Fecha Venta:"), gbcCliente);
+        gbcCliente.gridx = 1;
+        gbcCliente.gridy = 7;
+        gbcCliente.gridwidth = 2;
+        clientePanel.add(dateSpinner, gbcCliente);
+        
+        manualBcvField = new JTextField("0.00");
+        ((javax.swing.text.AbstractDocument) manualBcvField.getDocument()).setDocumentFilter(new NumericFilter()); 
+        manualBcvField.setEnabled(false);
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 8;
+        gbcCliente.gridwidth = 1;
+        clientePanel.add(new JLabel("Tasa Manual (Bs/$):"), gbcCliente);
+        gbcCliente.gridx = 1;
+        gbcCliente.gridy = 8;
+        gbcCliente.gridwidth = 2;
+        clientePanel.add(manualBcvField, gbcCliente);
+        
+        manualBcvField.getDocument().addDocumentListener(new SimpleDocumentListener(this::actualizarTasaManual));
+        historicalSaleCheck.addActionListener(e -> toggleHistoricalMode());
 
         gbc.gridx = 0;
         gbc.gridy = 0;
@@ -606,7 +627,7 @@ public class CapelliSalesWindow extends JFrame {
 
         JButton verReporteDiarioBtn = new JButton("Ver Reporte del Día");
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 8; 
+        gbcCliente.gridy = 9; // Ajustar gridy
         gbcCliente.gridwidth = 3; 
         gbcCliente.anchor = GridBagConstraints.CENTER;
         clientePanel.add(verReporteDiarioBtn, gbcCliente);

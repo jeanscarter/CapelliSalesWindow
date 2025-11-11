@@ -9,11 +9,12 @@ public class Service {
     private double price_ext;
     private boolean permite_cliente_producto; 
     private double price_cliente_producto;  
+    private String service_category; 
 
-    // Constructores y otros getters/setters...
+   
     public Service() {}
     
-   public Service(int id, String name, double price_corto, double price_medio, double price_largo, double price_ext, boolean permite_cliente_producto, double price_cliente_producto) {
+   public Service(int id, String name, double price_corto, double price_medio, double price_largo, double price_ext, boolean permite_cliente_producto, double price_cliente_producto, String service_category) {
          this.id = id;
          this.name = name;
          this.price_corto = price_corto;
@@ -21,7 +22,8 @@ public class Service {
          this.price_largo = price_largo;
          this.price_ext = price_ext;
          this.permite_cliente_producto = permite_cliente_producto; 
-         this.price_cliente_producto = price_cliente_producto;    
+         this.price_cliente_producto = price_cliente_producto;
+         this.service_category = service_category; // NUEVO CAMPO
      }
 
     public int getId() { return id; }
@@ -29,7 +31,7 @@ public class Service {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
-    // Getters y Setters para los nuevos precios
+    // Getters y Setters para los precios
     public double getPrice_corto() { return price_corto; }
     public void setPrice_corto(double price_corto) { this.price_corto = price_corto; }
     public double getPrice_medio() { return price_medio; }
@@ -54,5 +56,12 @@ public class Service {
      public void setPriceClienteProducto(double price_cliente_producto) {
          this.price_cliente_producto = price_cliente_producto;
      }
-    
+     
+    public String getService_category() {
+        return service_category;
+    }
+
+    public void setService_category(String service_category) {
+        this.service_category = service_category;
+    }
 }

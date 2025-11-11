@@ -229,6 +229,16 @@ public class Database {
                 + "    setting_key TEXT PRIMARY KEY NOT NULL,\n"
                 + "    setting_value TEXT NOT NULL\n"
                 + ");";
+        
+        // ===== NUEVA TABLA PARA REGLAS DE COMISIÓN =====
+        String sqlCommissionRules = "CREATE TABLE IF NOT EXISTS trabajadora_commission_rules (\n"
+                + "    rule_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+                + "    trabajadora_id INTEGER NOT NULL,\n"
+                + "    service_category TEXT NOT NULL,\n"
+                + "    commission_rate REAL NOT NULL,\n"
+                + "    UNIQUE(trabajadora_id, service_category),\n"
+                + "    FOREIGN KEY (trabajadora_id) REFERENCES trabajadoras (id) ON DELETE CASCADE\n"
+                + ");";
 
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
 
@@ -255,6 +265,10 @@ public class Database {
             
             stmt.execute(sqlSettings);
             LOGGER.info("Tabla 'app_settings' verificada/creada");
+            
+            // ===== EJECUTAR CREACIÓN DE NUEVA TABLA =====
+            stmt.execute(sqlCommissionRules);
+            LOGGER.info("Tabla 'trabajadora_commission_rules' verificada/creada");
             
             String sqlInitCorr = "INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES ('" + ConfigManager.KEY_CORRELATIVE + "', '1');";
             stmt.execute(sqlInitCorr);
@@ -290,6 +304,27 @@ public class Database {
                     LOGGER.info("Columna 'correlative_number' ya existe en 'sales'.");
                 } else {
                     LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para Correlativo", e);
+                }
+            }
+            
+            // ===== NUEVA ALTERACIÓN PARA CATEGORÍA DE SERVICIO =====
+            try {
+                stmt.execute("ALTER TABLE services ADD COLUMN service_category TEXT");
+                LOGGER.info("Columna 'service_category' agregada a la tabla 'services'.");
+                
+                // (Opcional) Asignar categorías por defecto a servicios existentes
+                stmt.execute("UPDATE services SET service_category = 'Peluqueria' WHERE name IN ('Secado', 'Corte Puntas', 'Corte Elaborado', 'Peinados')");
+                stmt.execute("UPDATE services SET service_category = 'Quimico' WHERE name IN ('Color (Tinte)', 'Mechas', 'Keratina', 'Aplicación de Tinte')");
+                stmt.execute("UPDATE services SET service_category = 'Manos/Pies' WHERE name IN ('Manicure Tradicional', 'Pedicure Tradicional')");
+                stmt.execute("UPDATE services SET service_category = 'Lavado' WHERE name = 'Lavado'");
+                stmt.execute("UPDATE services SET service_category = 'Extensiones' WHERE name IN ('Mantenimiento', 'Extensiones')");
+                LOGGER.info("Categorías de servicio por defecto asignadas.");
+                
+            } catch (SQLException e) {
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'service_category' ya existe en 'services'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para service_category", e);
                 }
             }
 

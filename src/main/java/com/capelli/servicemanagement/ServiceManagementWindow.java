@@ -12,7 +12,6 @@ import java.sql.SQLException;
 import java.text.DecimalFormat;
 import java.util.List;
 import net.miginfocom.swing.MigLayout;
-import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 
 public class ServiceManagementWindow extends JFrame {
@@ -26,9 +25,10 @@ public class ServiceManagementWindow extends JFrame {
     private final JTextField priceMedioField;
     private final JTextField priceLargoField;
     private final JTextField priceExtField;
-    // NUEVOS CAMPOS
-    private final JCheckBox permiteClienteCheck; // NUEVO CheckBox
-    private final JTextField priceClienteProductoField; // NUEVO Campo de precio
+
+    private final JCheckBox permiteClienteCheck; 
+    private final JTextField priceClienteProductoField;
+    private final JTextField categoryField; 
     
     private Service currentService = null;
 
@@ -44,7 +44,7 @@ public class ServiceManagementWindow extends JFrame {
 
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         // Aumentamos el tamaño para acomodar más campos
-        setSize(950, 600); // Aumento de ancho para nuevas columnas
+        setSize(1050, 650); // Aumento de ancho para nuevas columnas
         setLocationRelativeTo(null);
 
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
@@ -52,7 +52,7 @@ public class ServiceManagementWindow extends JFrame {
 
         // Formulario: Modifica el formPanel para usar MigLayout, que es más flexible
         // wrap 4: 4 columnas antes de un salto de línea. [right]10[grow,fill]: La etiqueta a la derecha, el campo crece y se rellena.
-        JPanel formPanel = new JPanel(new MigLayout("wrap 4, fillx", "[right]10[grow,fill]"));
+        JPanel formPanel = new JPanel(new MigLayout("wrap 4, fillx", "[right]10[grow,fill]20[right]10[grow,fill]"));
         formPanel.setBorder(new TitledBorder("Datos del Servicio"));
 
         nameField = new JTextField();
@@ -64,10 +64,13 @@ public class ServiceManagementWindow extends JFrame {
         // Inicializamos los NUEVOS campos
         permiteClienteCheck = new JCheckBox("Permite que cliente traiga producto");
         priceClienteProductoField = new JTextField("0.0");
+        categoryField = new JTextField(); 
 
-        // Fila 1: Nombre (ocupa 4 columnas)
+        // Fila 1: Nombre y Categoría
         formPanel.add(new JLabel("Nombre:"));
-        formPanel.add(nameField, "span, growx");
+        formPanel.add(nameField, "growx");
+        formPanel.add(new JLabel("Categoría:")); 
+        formPanel.add(categoryField, "growx");
 
         // Fila 2: P. Corto y P. Medio
         formPanel.add(new JLabel("P. Corto ($):"));
@@ -104,7 +107,7 @@ public class ServiceManagementWindow extends JFrame {
         topPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         // Tabla: Actualizamos el encabezado para las nuevas columnas
-        String[] columnNames = {"ID", "Nombre", "P. Corto", "P. Medio", "P. Largo", "P. Ext.", "Permite Cliente?", "P. Cliente"};
+        String[] columnNames = {"ID", "Nombre", "Categoría", "P. Corto", "P. Medio", "P. Largo", "P. Ext.", "Permite Cliente?", "P. Cliente"};
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -112,7 +115,7 @@ public class ServiceManagementWindow extends JFrame {
             }
             @Override // Sobreescribimos para que la columna 6 (Permite Cliente?) muestre booleanos
             public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex == 6) {
+                if (columnIndex == 7) { // Índice de "Permite Cliente?"
                     return Boolean.class;
                 }
                 return super.getColumnClass(columnIndex);
@@ -120,7 +123,8 @@ public class ServiceManagementWindow extends JFrame {
         };
         serviceTable = new JTable(tableModel);
         serviceTable.getColumnModel().getColumn(0).setMaxWidth(50); // ID column width
-        serviceTable.getColumnModel().getColumn(6).setMaxWidth(100); // Checkbox visual width
+        serviceTable.getColumnModel().getColumn(2).setMinWidth(120); // Categoría
+        serviceTable.getColumnModel().getColumn(7).setMaxWidth(100); // Checkbox visual width
 
         // Opcional: Renderizador para el booleano como CheckBox en la tabla (no necesario si se sobrescribe getColumnClass)
         // serviceTable.getColumnModel().getColumn(6).setCellRenderer(serviceTable.getDefaultRenderer(Boolean.class));
@@ -152,6 +156,7 @@ public class ServiceManagementWindow extends JFrame {
                         if (service != null) {
                             currentService = service;
                             nameField.setText(service.getName());
+                            categoryField.setText(service.getService_category()); // NUEVO
                             priceCortoField.setText(String.valueOf(service.getPrice_corto()));
                             priceMedioField.setText(String.valueOf(service.getPrice_medio()));
                             priceLargoField.setText(String.valueOf(service.getPrice_largo()));
@@ -181,12 +186,13 @@ public class ServiceManagementWindow extends JFrame {
                 tableModel.addRow(new Object[]{
                     service.getId(),
                     service.getName(),
+                    service.getService_category(), 
                     df.format(service.getPrice_corto()),
                     df.format(service.getPrice_medio()),
                     df.format(service.getPrice_largo()),
                     df.format(service.getPrice_ext()),
-                    service.isPermiteClienteProducto(), // Nuevo: valor booleano
-                    df.format(service.getPriceClienteProducto()) // Nuevo: Precio Cliente
+                    service.isPermiteClienteProducto(), 
+                    df.format(service.getPriceClienteProducto())
                 });
             }
         } catch (SQLException e) {
@@ -196,15 +202,20 @@ public class ServiceManagementWindow extends JFrame {
 
     private void saveService(boolean isNew) {
         String name = nameField.getText().trim();
-        boolean permiteCliente = permiteClienteCheck.isSelected(); // Obtener estado del checkbox
+        String category = categoryField.getText().trim(); 
+        boolean permiteCliente = permiteClienteCheck.isSelected();
 
         // Creamos una lista de los campos de precio y sus nombres para validación
         JTextField[] priceFields = {priceCortoField, priceMedioField, priceLargoField, priceExtField, priceClienteProductoField}; // 5 campos
-        String[] priceNames = {"P. Corto", "P. Medio", "P. Largo", "P. Ext.", "P. Cliente"}; // 5 nombres
+        String[] priceNames = {"P. Corto", "P. Medio", "P. Largo", "P. Ext.", "P. Cliente"}; 
         double[] prices = new double[5];
 
         if (name.isEmpty()) {
             JOptionPane.showMessageDialog(this, "El nombre es obligatorio.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (category.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "La categoría es obligatoria.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -246,7 +257,7 @@ public class ServiceManagementWindow extends JFrame {
 
         if (isNew) {
             // Creamos el nuevo objeto Service con los 5 precios y el booleano
-            currentService = new Service(0, name, prices[0], prices[1], prices[2], prices[3], permiteCliente, prices[4]);
+            currentService = new Service(0, name, prices[0], prices[1], prices[2], prices[3], permiteCliente, prices[4], category);
         } else {
             if (currentService == null) {
                 JOptionPane.showMessageDialog(this, "Seleccione un servicio de la tabla para actualizar.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -254,12 +265,13 @@ public class ServiceManagementWindow extends JFrame {
             }
             // Actualizamos todos los campos del objeto existente
             currentService.setName(name);
+            currentService.setService_category(category);
             currentService.setPrice_corto(prices[0]);
             currentService.setPrice_medio(prices[1]);
             currentService.setPrice_largo(prices[2]);
             currentService.setPrice_ext(prices[3]);
-            currentService.setPermiteClienteProducto(permiteCliente); // Nuevo: booleano
-            currentService.setPriceClienteProducto(prices[4]); // Nuevo: precio cliente
+            currentService.setPermiteClienteProducto(permiteCliente); 
+            currentService.setPriceClienteProducto(prices[4]); 
         }
 
         try {
@@ -268,7 +280,11 @@ public class ServiceManagementWindow extends JFrame {
             loadServices();
             clearFields();
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error al guardar el servicio: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
+            if (e.getMessage().contains("SQLITE_CONSTRAINT_UNIQUE")) {
+               JOptionPane.showMessageDialog(this, "Error: Ya existe un servicio con ese nombre.", "Error de Duplicado", JOptionPane.ERROR_MESSAGE);
+           } else {
+               JOptionPane.showMessageDialog(this, "Error al guardar el servicio: " + e.getMessage(), "Error DB", JOptionPane.ERROR_MESSAGE);
+           }
         }
     }
 
@@ -294,7 +310,8 @@ public class ServiceManagementWindow extends JFrame {
     private void clearFields() {
         currentService = null;
         nameField.setText("");
-        // Limpiamos los 4 campos de precio existentes
+        categoryField.setText("");
+        
         priceCortoField.setText("0.0");
         priceMedioField.setText("0.0");
         priceLargoField.setText("0.0");
