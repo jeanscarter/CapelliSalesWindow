@@ -533,7 +533,7 @@ public class ClientManagementWindow extends JFrame {
         clientTable.clearSelection();
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SQLException {
         Database.initialize();
         try {
             UIManager.setLookAndFeel(new FlatLightLaf());

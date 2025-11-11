@@ -1,3 +1,4 @@
+// Archivo: src/main/java/com/capelli/validation/VentaValidator.java
 package com.capelli.validation;
 
 import java.util.List;
@@ -29,11 +30,13 @@ public class VentaValidator {
     
     /**
      * Valida una venta completa antes de procesarla.
+     * @param iva El monto de IVA calculado
      */
     public static ValidationResult validateVenta(
             List<ServicioVenta> servicios,
             double subtotal,
             double descuento,
+            double iva, // NUEVO
             double propina,
             double total,
             double montoPagado,
@@ -59,6 +62,7 @@ public class VentaValidator {
         // 3. Validar montos
         CommonValidators.validateNonNegative(subtotal, "Subtotal", result);
         CommonValidators.validateNonNegative(descuento, "Descuento", result);
+        CommonValidators.validateNonNegative(iva, "IVA", result); // NUEVO
         CommonValidators.validateNonNegative(propina, "Propina", result);
         CommonValidators.validateNonNegative(total, "Total", result);
         
@@ -80,7 +84,8 @@ public class VentaValidator {
         }
         
         // 6. Validar que el total sea correcto
-        double totalCalculado = subtotal - descuento + propina;
+        // MODIFICADO: Añadir IVA al cálculo
+        double totalCalculado = (subtotal - descuento) + iva + propina;
         if (Math.abs(totalCalculado - total) > 0.01) {
             result.addError("Total", 
                 String.format("El total no es correcto (Esperado: %.2f, Actual: %.2f)", 

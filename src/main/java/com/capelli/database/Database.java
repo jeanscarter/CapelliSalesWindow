@@ -1,6 +1,7 @@
 package com.capelli.database;
 
 import com.capelli.config.AppConfig;
+import com.capelli.config.ConfigManager;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -44,12 +45,22 @@ public class Database {
     }
 
     /**
-     * Inserta o actualiza un servicio en la base de datos. Utiliza INSERT OR
-     * REPLACE para evitar duplicados por nombre.
+     * Inserta o actualiza un servicio en la base de datos.
+     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
+     * evitar violaciones de Foreign Key.
      */
     private static void addOrUpdateService(Connection conn, String name, double pCorto, double pMedio, double pLargo, double pExt, boolean permiteCliente, double pCliente) throws SQLException {
-        // Usa INSERT OR REPLACE para manejar la clave única 'name' y actualizar si ya existe
-        String sql = "INSERT OR REPLACE INTO services (name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        
+        String sql = "INSERT INTO services (name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto) " +
+                     "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+                     "ON CONFLICT(name) DO UPDATE SET " +
+                     "  price_corto = excluded.price_corto, " +
+                     "  price_medio = excluded.price_medio, " +
+                     "  price_largo = excluded.price_largo, " +
+                     "  price_ext = excluded.price_ext, " +
+                     "  permite_cliente_producto = excluded.permite_cliente_producto, " +
+                     "  price_cliente_producto = excluded.price_cliente_producto";
+
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, name);
             pstmt.setDouble(2, pCorto);
@@ -63,13 +74,20 @@ public class Database {
     }
     
     /**
-     * (NUEVO) Inserta o actualiza una trabajadora.
-     * Utiliza INSERT OR REPLACE basado en la restricción UNIQUE de 'numero_ci'.
+     * Inserta o actualiza una trabajadora.
+     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
+     * evitar violaciones de Foreign Key.
      */
     private static void addOrUpdateTrabajadora(Connection conn, String nombres, String apellidos, String tipo_ci, String numero_ci, String telefono) throws SQLException {
-        // Se asume que correo y foto son nulos durante la precarga.
-        String sql = "INSERT OR REPLACE INTO trabajadoras (nombres, apellidos, tipo_ci, numero_ci, telefono, correo, foto) " +
-                     "VALUES (?, ?, ?, ?, ?, NULL, NULL)";
+        
+        String sql = "INSERT INTO trabajadoras (nombres, apellidos, tipo_ci, numero_ci, telefono, correo, foto) " +
+                     "VALUES (?, ?, ?, ?, ?, NULL, NULL) " +
+                     "ON CONFLICT(numero_ci) DO UPDATE SET " +
+                     "  nombres = excluded.nombres, " +
+                     "  apellidos = excluded.apellidos, " +
+                     "  tipo_ci = excluded.tipo_ci, " +
+                     "  telefono = excluded.telefono";
+                     
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, nombres);
             pstmt.setString(2, apellidos);
@@ -81,11 +99,9 @@ public class Database {
     }
 
     /**
-     * (NUEVO) Inserta o actualiza una cuenta bancaria.
-     * Utiliza INSERT OR REPLACE basado en la restricción UNIQUE de 'numero_cuenta'.
+     * Inserta o actualiza una cuenta bancaria.
      */
     private static void addOrUpdateCuenta(Connection conn, String trabajadora_ci, String banco, String tipo_cuenta, String numero_cuenta, boolean es_principal) throws SQLException {
-        // 1. Obtener el ID de la trabajadora usando su Cédula
         int trabajadora_id = -1;
         String sqlGetId = "SELECT id FROM trabajadoras WHERE numero_ci = ?";
         try (PreparedStatement pstmtGetId = conn.prepareStatement(sqlGetId)) {
@@ -95,13 +111,18 @@ public class Database {
                 trabajadora_id = rs.getInt("id");
             } else {
                 LOGGER.warning("No se encontró trabajadora con CI: " + trabajadora_ci + " para agregar cuenta. Saltando...");
-                return; // No se puede agregar la cuenta si la trabajadora no existe
+                return; 
             }
         }
-
-        // 2. Insertar o reemplazar la cuenta bancaria
-        String sqlCuenta = "INSERT OR REPLACE INTO cuentas_bancarias (trabajadora_id, banco, tipo_cuenta, numero_cuenta, es_principal) " +
-                           "VALUES (?, ?, ?, ?, ?)";
+        
+        String sqlCuenta = "INSERT INTO cuentas_bancarias (trabajadora_id, banco, tipo_cuenta, numero_cuenta, es_principal) " +
+                           "VALUES (?, ?, ?, ?, ?) " +
+                           "ON CONFLICT(numero_cuenta) DO UPDATE SET " +
+                           "  trabajadora_id = excluded.trabajadora_id, " +
+                           "  banco = excluded.banco, " +
+                           "  tipo_cuenta = excluded.tipo_cuenta, " +
+                           "  es_principal = excluded.es_principal";
+                           
         try (PreparedStatement pstmt = conn.prepareStatement(sqlCuenta)) {
             pstmt.setInt(1, trabajadora_id);
             pstmt.setString(2, banco);
@@ -204,6 +225,11 @@ public class Database {
                 + "    FOREIGN KEY (sale_id) REFERENCES sales (sale_id)\n"
                 + ");";
 
+        String sqlSettings = "CREATE TABLE IF NOT EXISTS app_settings (\n"
+                + "    setting_key TEXT PRIMARY KEY NOT NULL,\n"
+                + "    setting_value TEXT NOT NULL\n"
+                + ");";
+
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
 
             stmt.execute(sqlClients);
@@ -227,15 +253,43 @@ public class Database {
             stmt.execute(sqlTips);
             LOGGER.info("Tabla 'tips' verificada/creada");
             
+            stmt.execute(sqlSettings);
+            LOGGER.info("Tabla 'app_settings' verificada/creada");
+            
+            String sqlInitCorr = "INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES ('" + ConfigManager.KEY_CORRELATIVE + "', '1');";
+            stmt.execute(sqlInitCorr);
+            LOGGER.info("Correlativo inicial verificado/creado.");
+            
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN bcv_rate_at_sale REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'bcv_rate_at_sale' agregada a la tabla 'sales'.");
             } catch (SQLException e) {
-                // Esto es normal si la columna ya existe
                 if (e.getMessage().contains("duplicate column name")) {
                     LOGGER.info("Columna 'bcv_rate_at_sale' ya existe en 'sales'.");
                 } else {
                     LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales'", e);
+                }
+            }
+            
+            try {
+                stmt.execute("ALTER TABLE sales ADD COLUMN vat_amount REAL DEFAULT 0.0");
+                LOGGER.info("Columna 'vat_amount' agregada a la tabla 'sales'.");
+            } catch (SQLException e) {
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'vat_amount' ya existe en 'sales'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para VAT", e);
+                }
+            }
+            
+            try {
+                stmt.execute("ALTER TABLE sales ADD COLUMN correlative_number TEXT");
+                LOGGER.info("Columna 'correlative_number' agregada a la tabla 'sales'.");
+            } catch (SQLException e) {
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'correlative_number' ya existe en 'sales'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para Correlativo", e);
                 }
             }
 
@@ -285,10 +339,9 @@ public class Database {
 
             addOrUpdateTrabajadora(conn, "Maria", "Diaz", "V", "7774946", "04246464683");
            
-
             addOrUpdateTrabajadora(conn, "Rosa Maria", "Gutierrez", "V", "9200133", "04246889337");
          
-            addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340946380001307454", true); // Asignada como principal
+            addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340946380001307454", true); 
             addOrUpdateCuenta(conn, "9200133", "Banco Nacional de Crédito (BNC)", "Corriente", "01160148150014749505", false);
             addOrUpdateCuenta(conn, "9200133", "Bancamiga", "Corriente", "01720112381125322600", false);
             addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340077650773172568", false);

@@ -1,3 +1,4 @@
+// Archivo: src/main/java/com/capelli/config/AppConfig.java
 package com.capelli.config;
 
 import java.io.IOException;
@@ -36,6 +37,7 @@ public class AppConfig {
     
     // Configuración de Negocio
     public static final String PROMO_DISCOUNT_PERCENTAGE = "business.promo.discount.percentage";
+    public static final String BUSINESS_VAT_PERCENTAGE = "business.vat.percentage"; // NUEVO
     public static final String MULTIPLE_WORKER_SERVICES = "business.multiple.worker.services";
     public static final String DISCOUNT_TYPES = "business.discount.types";
     public static final String PAYMENT_METHODS = "business.payment.methods";
@@ -97,6 +99,7 @@ public class AppConfig {
         
         // Negocio
         props.setProperty(PROMO_DISCOUNT_PERCENTAGE, "20");
+        props.setProperty(BUSINESS_VAT_PERCENTAGE, "16"); // NUEVO
         props.setProperty(MULTIPLE_WORKER_SERVICES, "Mechas,Extensiones,Mantenimiento de Extensiones");
         props.setProperty(DISCOUNT_TYPES, "Ninguno,Promoción,Intercambio,Cuenta por pagar,Cuenta por Cobrar");
         props.setProperty(PAYMENT_METHODS, "TD,TC,Pago Movil,Efectivo $,Efectivo Bs,Transferencia");
@@ -135,7 +138,9 @@ public class AppConfig {
      */
     public static double getDouble(String key, double defaultValue) {
         try {
-            return Double.parseDouble(props.getProperty(key, String.valueOf(defaultValue)));
+            // Reemplazar coma por punto para compatibilidad
+            String value = props.getProperty(key, String.valueOf(defaultValue));
+            return Double.parseDouble(value.replace(",", "."));
         } catch (NumberFormatException e) {
             LOGGER.warning("Error al parsear double para key: " + key + ", usando default: " + defaultValue);
             return defaultValue;
@@ -220,6 +225,14 @@ public class AppConfig {
     // Negocio
     public static double getPromoDiscountPercentage() {
         return getDouble(PROMO_DISCOUNT_PERCENTAGE, 20.0) / 100.0;
+    }
+    
+    /**
+     * Obtiene el porcentaje de IVA (ej: 0.16 para 16%).
+     * @return El porcentaje de IVA.
+     */
+    public static double getVatPercentage() {
+        return getDouble(BUSINESS_VAT_PERCENTAGE, 16.0) / 100.0;
     }
     
     public static String[] getMultipleWorkerServices() {

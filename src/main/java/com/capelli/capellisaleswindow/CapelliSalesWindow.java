@@ -13,6 +13,8 @@ import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ActionListener;
+import java.awt.event.ActionEvent; 
+import java.awt.event.KeyEvent;
 import java.io.File;
 import java.io.IOException;
 import java.sql.Connection;
@@ -30,10 +32,13 @@ import java.util.Objects;
 import javax.imageio.ImageIO;
 import javax.swing.event.TableModelEvent;
 import com.capelli.config.AppConfig;
+import com.capelli.config.ConfigManager; // IMPORTAR
 import com.capelli.database.ServiceDAO;
 import com.capelli.model.Service;
 import com.capelli.servicemanagement.ServiceManagementWindow;
 import java.io.InputStream;
+import java.util.Date; 
+import java.sql.Timestamp; 
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import com.capelli.validation.*;
@@ -48,7 +53,10 @@ public class CapelliSalesWindow extends JFrame {
     private List<String> trabajadorasNombres = new ArrayList<>();
     private List<Trabajadora> trabajadorasList = new ArrayList<>();
     private final List<String> tiposDescuento = new ArrayList<>(Arrays.asList(AppConfig.getDiscountTypes()));
-    private final List<String> metodosPago = new ArrayList<>(Arrays.asList(AppConfig.getPaymentMethods()));
+    
+    private final List<String> metodosPagoBs = new ArrayList<>(Arrays.asList("TD", "TC", "Pago Movil", "Efectivo Bs"));
+    private final List<String> metodosPagoUsd = new ArrayList<>(Arrays.asList("Efectivo $", "Transferencia"));
+    
     private final List<String> serviciosConMultiplesTrabajadoras = Arrays.asList(AppConfig.getMultipleWorkerServices());
     private double tasaBcv = AppConfig.getDefaultBcvRate();
 
@@ -69,12 +77,24 @@ public class CapelliSalesWindow extends JFrame {
     private JLabel vueltoLabel;
     private JRadioButton monedaBs, monedaDolar;
     private JComboBox<String> pagoComboBox;
+    
+    private JLabel subtotalLabel;
+    private JLabel descuentoLabel;
+    private JLabel propinaLabelGUI;
+    private JLabel ivaLabel;
     private JLabel totalLabel;
 
     private JRadioButton pagoMovilCapelliRadio;
     private JRadioButton pagoMovilRosaRadio;
     private ButtonGroup pagoMovilDestinoGroup;
     private JPanel pagoMovilPanel;
+    
+    private JSpinner dateSpinner;
+    private JTextField manualBcvField;
+    private JCheckBox historicalSaleCheck;
+    
+    private JLabel correlativeLabel;
+    private int currentCorrelative = 1;
 
     private final List<VentaServicio> serviciosAgregados = new ArrayList<>();
     private ClienteActivo clienteActual = null;
@@ -96,31 +116,7 @@ public class CapelliSalesWindow extends JFrame {
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error al cargar icono de aplicación", e);
         }
-
-        SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
-            @Override
-            protected Double doInBackground() throws Exception {
-                return BCVService.getBCVRate();
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    double rate = get();
-                    if (rate > 0) {
-                        tasaBcv = rate;
-                        String formattedRate = String.format("%.2f", tasaBcv);
-                        tasaLabel.setText("Tasa BCV: " + formattedRate + " Bs/$");
-                    } else {
-                        tasaLabel.setText("Tasa BCV: Error de carga");
-                    }
-                } catch (Exception e) {
-                    tasaLabel.setText("Tasa BCV: Error");
-                    e.printStackTrace();
-                }
-            }
-        };
-        worker.execute();
+        runBcvWorker();
 
         tableModel = new DefaultTableModel(new String[]{"Servicio", "Trabajador(a)", "Precio ($)"}, 0) {
             @Override
@@ -130,6 +126,7 @@ public class CapelliSalesWindow extends JFrame {
         };
 
         cargarDatosDesdeDB();
+        loadApplicationSettings();
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(AppConfig.getDefaultWindowWidth(), AppConfig.getDefaultWindowHeight());
@@ -163,12 +160,13 @@ public class CapelliSalesWindow extends JFrame {
         mainPanel.add(crearPanelDerechoInferior(), gbc);
 
         add(mainPanel);
+        
+        setupKeyBindings();
 
-        // Validación en tiempo real para propina
         propinaField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             ValidationHelper.resetFieldBorder(propinaField);
             try {
-                double propina = Double.parseDouble(propinaField.getText());
+                double propina = Double.parseDouble(propinaField.getText().replace(",", "."));
                 if (propina < 0) {
                     ValidationHelper.markFieldAsError(propinaField);
                     ValidationHelper.addErrorTooltip(propinaField, "La propina no puede ser negativa");
@@ -184,11 +182,10 @@ public class CapelliSalesWindow extends JFrame {
             actualizarTotales();
         }));
 
-        // Validación en tiempo real para monto pagado
         montoPagadoField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             ValidationHelper.resetFieldBorder(montoPagadoField);
             try {
-                double monto = Double.parseDouble(montoPagadoField.getText());
+                double monto = Double.parseDouble(montoPagadoField.getText().replace(",", "."));
                 if (monto < 0) {
                     ValidationHelper.markFieldAsError(montoPagadoField);
                     ValidationHelper.addErrorTooltip(montoPagadoField, "El monto no puede ser negativo");
@@ -204,28 +201,119 @@ public class CapelliSalesWindow extends JFrame {
             actualizarTotales();
         }));
 
-        // Validación de cédula en tiempo real
         cedulaNumeroField.getDocument().addDocumentListener(new SimpleDocumentListener(this::validateCedulaInput));
         cedulaTipoComboBox.addActionListener(e -> validateCedulaInput());
     }
+    
+    private void loadApplicationSettings() {
+        this.currentCorrelative = ConfigManager.getCurrentCorrelative();
+        if (correlativeLabel != null) {
+            correlativeLabel.setText("Factura N°: " + currentCorrelative);
+        }
+    }
+    
+    private void setupKeyBindings() {
+        JPanel contentPane = (JPanel) this.getContentPane();
+        InputMap im = contentPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = contentPane.getActionMap();
 
-    private void cargarDatosDesdeDB() {
-        ServiceDAO serviceDAO = new ServiceDAO(); // Mover la instanciación aquí o hacerla variable de instancia
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_0, KeyEvent.CTRL_DOWN_MASK), "changeCorrelative");
+        am.put("changeCorrelative", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                promptForCorrelativeChange();
+            }
+        });
+    }
+
+    private void promptForCorrelativeChange() {
+        // 1. Pedir contraseña
+        JPasswordField passwordField = new JPasswordField(20);
+        int option = JOptionPane.showConfirmDialog(this, passwordField, "Ingrese Contraseña de Administrador", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        
+        if (option != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        String password = new String(passwordField.getPassword());
+        // Contraseña simple (cambiar por una más segura si se desea)
+        if (!password.equals("capelli2024")) {
+            JOptionPane.showMessageDialog(this, "Contraseña incorrecta.", "Acceso Denegado", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // 2. Pedir nuevo número
+        String newCorrStr = JOptionPane.showInputDialog(this, "Ingrese el NUEVO número correlativo:", currentCorrelative);
+        if (newCorrStr == null || newCorrStr.trim().isEmpty()) {
+            return;
+        }
 
         try {
-            serviciosMap = serviceDAO.getAllMap(); // Cargar todos los servicios en el Map
-            preciosServicios.clear(); // Limpiar el mapa antiguo (si aún lo usas para algo)
+            int newCorrelative = Integer.parseInt(newCorrStr.trim());
+            if (newCorrelative <= 0) {
+                JOptionPane.showMessageDialog(this, "El número debe ser positivo.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            
+            // 3. Guardar y actualizar
+            ConfigManager.setCorrelative(newCorrelative);
+            loadApplicationSettings(); // Recargar el número en la UI
+            
+            JOptionPane.showMessageDialog(this, "Correlativo actualizado a: " + newCorrelative, "Éxito", JOptionPane.INFORMATION_MESSAGE);
+
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "Valor inválido. Debe ingresar solo números.", "Error de Formato", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+
+    private void runBcvWorker() {
+        tasaLabel.setText("Tasa BCV: Cargando...");
+        SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
+            @Override
+            protected Double doInBackground() throws Exception {
+                return BCVService.getBCVRate();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    // Solo actualizar si no estamos en modo histórico
+                    if (historicalSaleCheck != null && !historicalSaleCheck.isSelected()) {
+                        double rate = get();
+                        if (rate > 0) {
+                            tasaBcv = rate;
+                            String formattedRate = String.format("%.2f", tasaBcv);
+                            tasaLabel.setText("Tasa BCV: " + formattedRate + " Bs/$");
+                        } else {
+                            tasaLabel.setText("Tasa BCV: Error de carga");
+                        }
+                    }
+                } catch (Exception e) {
+                    if (historicalSaleCheck != null && !historicalSaleCheck.isSelected()) {
+                        tasaLabel.setText("Tasa BCV: Error");
+                    }
+                    e.printStackTrace();
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void cargarDatosDesdeDB() {
+        ServiceDAO serviceDAO = new ServiceDAO(); 
+
+        try {
+            serviciosMap = serviceDAO.getAllMap(); 
+            preciosServicios.clear(); 
 
             if (serviciosComboBox != null) {
                 serviciosComboBox.removeAllItems();
-                // Llenar el ComboBox con los nombres de los servicios del Map
                 serviciosMap.keySet().stream().sorted().forEach(serviciosComboBox::addItem);
-                 // Seleccionar el primer item si existe
                 if (serviciosComboBox.getItemCount() > 0) {
                      serviciosComboBox.setSelectedIndex(0);
                  }
             }
-             // Llenar el mapa antiguo si es necesario para compatibilidad (Opcional)
              serviciosMap.forEach((name, service) -> preciosServicios.put(name, service.getPrice_corto()));
 
 
@@ -234,7 +322,6 @@ public class CapelliSalesWindow extends JFrame {
             LOGGER.log(Level.SEVERE, "Error al cargar servicios desde DB", e);
         }
 
-        // ... (código para cargar trabajadoras se mantiene igual) ...
          String sqlEmployees = "SELECT id, nombres, apellidos FROM trabajadoras ORDER BY nombres";
          try (Connection conn = Database.connect(); Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sqlEmployees)) {
              trabajadorasList.clear();
@@ -243,7 +330,7 @@ public class CapelliSalesWindow extends JFrame {
                  trabajadorasComboBox.removeAllItems();
              }
              if (propinaTrabajadoraComboBox != null) {
-                 propinaTrabajadoraComboBox.removeAllItems(); // Limpiar también el de propinas
+                 propinaTrabajadoraComboBox.removeAllItems(); 
              }
 
              List<String> propinaDestinatarios = new ArrayList<>();
@@ -256,14 +343,14 @@ public class CapelliSalesWindow extends JFrame {
                  trabajadorasList.add(t);
                  String nombreCompleto = t.getNombreCompleto();
                  trabajadorasNombres.add(nombreCompleto);
-                 propinaDestinatarios.add(nombreCompleto); // Añadir a la lista de propinas
+                 propinaDestinatarios.add(nombreCompleto); 
 
                  if (trabajadorasComboBox != null) {
                      trabajadorasComboBox.addItem(nombreCompleto);
                  }
              }
 
-             propinaDestinatarios.add("Salón"); // Añadir "Salón" al final
+             propinaDestinatarios.add("Salón"); 
              if (propinaTrabajadoraComboBox != null) {
                   propinaDestinatarios.forEach(propinaTrabajadoraComboBox::addItem);
               }
@@ -291,10 +378,8 @@ public class CapelliSalesWindow extends JFrame {
         gbcCliente.gridy = 0;
         clientePanel.add(new JLabel("Cédula:"), gbcCliente);
         
-        // --- INICIO MODIFICACIÓN CÉDULA ---
         cedulaTipoComboBox = new JComboBox<>(new String[]{"V", "J", "G", "P"});
         cedulaNumeroField = new JTextField(15);
-        // Add the numeric filter
         ((javax.swing.text.AbstractDocument) cedulaNumeroField.getDocument()).setDocumentFilter(new NumericFilter());
 
         JPanel cedulaPanel = new JPanel(new BorderLayout(5, 0));
@@ -308,13 +393,44 @@ public class CapelliSalesWindow extends JFrame {
         clientePanel.add(cedulaPanel, gbcCliente);
         
         cedulaNumeroField.addActionListener(e -> buscarClienteEnDB());
-        // --- FIN MODIFICACIÓN CÉDULA ---
 
+        historicalSaleCheck = new JCheckBox("Registrar Venta Histórica");
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 5; 
+        gbcCliente.gridwidth = 3;
+        clientePanel.add(historicalSaleCheck, gbcCliente);
+        
+        dateSpinner = new JSpinner(new SpinnerDateModel());
+        dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
+        dateSpinner.setEnabled(false);
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 6;
+        gbcCliente.gridwidth = 1;
+        clientePanel.add(new JLabel("Fecha Venta:"), gbcCliente);
+        gbcCliente.gridx = 1;
+        gbcCliente.gridy = 6;
+        gbcCliente.gridwidth = 2;
+        clientePanel.add(dateSpinner, gbcCliente);
+        
+        manualBcvField = new JTextField("0.00");
+        ((javax.swing.text.AbstractDocument) manualBcvField.getDocument()).setDocumentFilter(new NumericFilter()); 
+        manualBcvField.setEnabled(false);
+        gbcCliente.gridx = 0;
+        gbcCliente.gridy = 7;
+        gbcCliente.gridwidth = 1;
+        clientePanel.add(new JLabel("Tasa Manual (Bs/$):"), gbcCliente);
+        gbcCliente.gridx = 1;
+        gbcCliente.gridy = 7;
+        gbcCliente.gridwidth = 2;
+        clientePanel.add(manualBcvField, gbcCliente);
+        
+        manualBcvField.getDocument().addDocumentListener(new SimpleDocumentListener(this::actualizarTasaManual));
+        historicalSaleCheck.addActionListener(e -> toggleHistoricalMode());
 
         tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 4;
-        gbcCliente.gridwidth = 2;
+        gbcCliente.gridy = 4; 
+        gbcCliente.gridwidth = 3; 
         gbcCliente.anchor = GridBagConstraints.CENTER;
         clientePanel.add(tasaLabel, gbcCliente);
 
@@ -326,7 +442,6 @@ public class CapelliSalesWindow extends JFrame {
         gbcCliente.gridy = 0;
         gbcCliente.gridwidth = 2;
         gbcCliente.weightx = 1.0;
-        // clientePanel.add(cedulaField, gbcCliente); // Reemplazado por cedulaPanel
 
         JButton buscarClienteBtn = new JButton("Buscar Cliente");
         gbcCliente.gridx = 0;
@@ -401,6 +516,14 @@ public class CapelliSalesWindow extends JFrame {
             SalesDashboardWindow dashboard = new SalesDashboardWindow();
             dashboard.setVisible(true);
         });
+        
+        correlativeLabel = new JLabel("Factura N°: " + currentCorrelative);
+        correlativeLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        gbcCliente.gridx = 2;
+        gbcCliente.gridy = 3;
+        gbcCliente.gridwidth = 1;
+        gbcCliente.anchor = GridBagConstraints.EAST;
+        clientePanel.add(correlativeLabel, gbcCliente);
 
         gbc.gridx = 0;
         gbc.gridy = 0;
@@ -433,25 +556,25 @@ public class CapelliSalesWindow extends JFrame {
         serviciosPanel.add(trabajadorasComboBox, gbcServicios);
 
         clienteProductoCheck = new JCheckBox("Cliente trae producto");
-        clienteProductoCheck.setVisible(false); // Oculto por defecto
+        clienteProductoCheck.setVisible(false); 
         gbcServicios.gridx = 0;
-        gbcServicios.gridy = 3; // Nueva fila para el checkbox
-        gbcServicios.gridwidth = 2; // Ocupa ambas columnas
-        gbcServicios.anchor = GridBagConstraints.WEST; // Alinear a la izquierda
+        gbcServicios.gridy = 3; 
+        gbcServicios.gridwidth = 2; 
+        gbcServicios.anchor = GridBagConstraints.WEST; 
         serviciosPanel.add(clienteProductoCheck, gbcServicios);
 
         JButton agregarBtn = new JButton("Agregar Servicio");
         gbcServicios.gridx = 0;
-        gbcServicios.gridy = 4; // Mover botones una fila abajo
+        gbcServicios.gridy = 4; 
         gbcServicios.gridwidth = 1;
         gbcServicios.weightx = 0.5;
-        gbcServicios.anchor = GridBagConstraints.CENTER; // Resetear anchor
+        gbcServicios.anchor = GridBagConstraints.CENTER; 
         serviciosPanel.add(agregarBtn, gbcServicios);
         agregarBtn.addActionListener(e -> agregarServicio());
 
         JButton eliminarBtn = new JButton("Eliminar Servicio");
         gbcServicios.gridx = 1;
-        gbcServicios.gridy = 4; // Mover botones una fila abajo
+        gbcServicios.gridy = 4; 
         gbcServicios.gridwidth = 1;
         gbcServicios.weightx = 0.5;
         serviciosPanel.add(eliminarBtn, gbcServicios);
@@ -466,10 +589,10 @@ public class CapelliSalesWindow extends JFrame {
             if (selectedServiceName != null) {
                 Service selectedService = serviciosMap.get(selectedServiceName);
                 if (selectedService != null && selectedService.isPermiteClienteProducto()) {
-                    clienteProductoCheck.setVisible(true); // Mostrar checkbox
+                    clienteProductoCheck.setVisible(true); 
                 } else {
-                    clienteProductoCheck.setVisible(false); // Ocultar checkbox
-                    clienteProductoCheck.setSelected(false); // Desmarcar si se oculta
+                    clienteProductoCheck.setVisible(false); 
+                    clienteProductoCheck.setSelected(false); 
                 }
             } else {
                 clienteProductoCheck.setVisible(false);
@@ -483,8 +606,8 @@ public class CapelliSalesWindow extends JFrame {
 
         JButton verReporteDiarioBtn = new JButton("Ver Reporte del Día");
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 5;
-        gbcCliente.gridwidth = 2;
+        gbcCliente.gridy = 8; 
+        gbcCliente.gridwidth = 3; 
         gbcCliente.anchor = GridBagConstraints.CENTER;
         clientePanel.add(verReporteDiarioBtn, gbcCliente);
 
@@ -519,6 +642,32 @@ public class CapelliSalesWindow extends JFrame {
         return panel;
     }
 
+    private void toggleHistoricalMode() {
+        boolean enabled = historicalSaleCheck.isSelected();
+        dateSpinner.setEnabled(enabled);
+        manualBcvField.setEnabled(enabled);
+        tasaLabel.setEnabled(!enabled); 
+
+        if (!enabled) {
+            manualBcvField.setText("0.00");
+            runBcvWorker(); 
+        } else {
+            actualizarTasaManual();
+        }
+    }
+    
+    private void actualizarTasaManual() {
+        if (historicalSaleCheck.isSelected()) {
+            try {
+                tasaBcv = Double.parseDouble(manualBcvField.getText().replace(",", "."));
+            } catch (NumberFormatException e) {
+                tasaBcv = 0.0;
+            }
+            actualizarTotales(); 
+        }
+    }
+
+
     private void validateCedulaInput() {
         String tipoCi = (String) cedulaTipoComboBox.getSelectedItem();
         String numeroCi = cedulaNumeroField.getText().trim();
@@ -543,7 +692,6 @@ public class CapelliSalesWindow extends JFrame {
         String tipoCi = (String) cedulaTipoComboBox.getSelectedItem();
         String numeroCi = cedulaNumeroField.getText().trim();
         
-        // Si el número está vacío, no hacer nada.
         if (numeroCi.isEmpty()) {
             nombreClienteLabel.setText("Nombre: No cargado");
             clienteActual = null;
@@ -624,7 +772,6 @@ public class CapelliSalesWindow extends JFrame {
              return;
         }
     
-        // 1. Obtener el objeto Service completo desde el Map
         Service servicioCompleto = serviciosMap.get(nombreServicio);
         if (servicioCompleto == null) {
             JOptionPane.showMessageDialog(this, "Error: no se pudo cargar la información del servicio.", "Error Interno", JOptionPane.ERROR_MESSAGE);
@@ -634,21 +781,17 @@ public class CapelliSalesWindow extends JFrame {
     
         double precioFinal;
     
-        // 2. Determinar precio base según si el cliente trae producto
         if (clienteTraeProducto && servicioCompleto.isPermiteClienteProducto()) {
             precioFinal = servicioCompleto.getPriceClienteProducto();
             LOGGER.fine("Usando precio con producto del cliente para " + nombreServicio + ": $" + precioFinal);
         } else {
-            // 3. Si no trae producto (o el servicio no lo permite), usar la lógica de tipo de cabello/extensiones
-            precioFinal = servicioCompleto.getPrice_corto(); // Precio por defecto
+            precioFinal = servicioCompleto.getPrice_corto(); 
     
-            // Lógica para seleccionar el precio basado en el tipo de cabello del cliente (si existe cliente)
             if (clienteActual != null && clienteActual.getHairType() != null && !clienteActual.getHairType().isEmpty()) {
                 String tipoCabello = clienteActual.getHairType();
                 LOGGER.fine("Cliente tiene tipo de cabello: " + tipoCabello);
                 switch (tipoCabello) {
                     case "Mediano":
-                        // Si el precio para mediano es mayor a 0, úsalo. Si no, usa el de corto.
                         if (servicioCompleto.getPrice_medio() > 0) {
                             precioFinal = servicioCompleto.getPrice_medio();
                             LOGGER.fine("Aplicando precio 'Mediano': $" + precioFinal);
@@ -664,7 +807,7 @@ public class CapelliSalesWindow extends JFrame {
                              LOGGER.fine("Servicio no tiene precio 'Largo', usando 'Corto': $" + precioFinal);
                         }
                         break;
-                    default: // Incluye "Corto" o no definido
+                    default: 
                          LOGGER.fine("Aplicando precio 'Corto' por defecto: $" + precioFinal);
                         break;
                 }
@@ -672,33 +815,25 @@ public class CapelliSalesWindow extends JFrame {
                 LOGGER.fine("No hay cliente cargado o no tiene tipo de cabello, usando precio 'Corto': $" + precioFinal);
             }
     
-            // Lógica para extensiones (si se detecta el servicio específico Y tiene precio > 0)
-            // Ajusta la condición si el nombre exacto es diferente
-            boolean esServicioExtensiones = nombreServicio.toLowerCase().contains("exten"); // Más flexible
+            boolean esServicioExtensiones = nombreServicio.toLowerCase().contains("exten"); 
             if (esServicioExtensiones && servicioCompleto.getPrice_ext() > 0) {
                 precioFinal = servicioCompleto.getPrice_ext();
                 LOGGER.fine("Aplicando precio 'Extensiones': $" + precioFinal);
             }
         }
     
-    
-        // 4. Modificar el nombre del servicio si el cliente trae producto para claridad en la tabla/factura
         String nombreEnTabla = nombreServicio;
         if (clienteTraeProducto) {
-            nombreEnTabla += " (Cliente)"; // Añadir indicativo
+            nombreEnTabla += " (Cliente)"; 
         }
     
-    
-        // 5. Agregar a la tabla y lista interna con el precio final calculado
-        serviciosAgregados.add(new VentaServicio(nombreEnTabla, trabajadora, precioFinal)); // Guardar nombre modificado
-        tableModel.addRow(new Object[]{nombreEnTabla, trabajadora, new DecimalFormat("#,##0.00").format(precioFinal)}); // Mostrar nombre modificado
+        serviciosAgregados.add(new VentaServicio(nombreEnTabla, trabajadora, precioFinal)); 
+        tableModel.addRow(new Object[]{nombreEnTabla, trabajadora, new DecimalFormat("#,##0.00").format(precioFinal)}); 
         LOGGER.info("Servicio agregado a la venta: " + nombreEnTabla + ", Trabajadora: " + trabajadora + ", Precio: $" + precioFinal);
     
         actualizarTotales();
     
-        // Resetear CheckBox después de agregar
         clienteProductoCheck.setSelected(false);
-        // Opcional: Ocultar si el siguiente servicio seleccionado no lo permite
         String nextSelectedService = (String) serviciosComboBox.getSelectedItem();
          if (nextSelectedService != null) {
              Service nextService = serviciosMap.get(nextSelectedService);
@@ -753,14 +888,19 @@ public class CapelliSalesWindow extends JFrame {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        JPanel totalesPanel = new JPanel(new GridLayout(4, 2));
+
+        JPanel totalesPanel = new JPanel(new GridLayout(5, 2)); 
         totalesPanel.setBorder(new TitledBorder("Resumen"));
-        JLabel subtotalLabel = new JLabel("Subtotal ($): 0.00");
-        JLabel descuentoLabel = new JLabel("Descuento ($): 0.00");
+        
+        subtotalLabel = new JLabel("Subtotal ($): 0.00");
+        descuentoLabel = new JLabel("Descuento ($): 0.00");
+        ivaLabel = new JLabel("IVA ($): 0.00"); 
         totalLabel = new JLabel("Total ($): 0.00");
-        JLabel propinaLabelGUI = new JLabel("Propina ($): 0.00");
+        propinaLabelGUI = new JLabel("Propina ($): 0.00");
+        
         totalesPanel.add(subtotalLabel);
         totalesPanel.add(descuentoLabel);
+        totalesPanel.add(ivaLabel); 
         totalesPanel.add(propinaLabelGUI);
         totalesPanel.add(totalLabel);
 
@@ -800,8 +940,10 @@ public class CapelliSalesWindow extends JFrame {
         gbcPago.gridx = 0;
         gbcPago.gridy = 0;
         pagoPanel.add(new JLabel("Moneda:"), gbcPago);
-        monedaBs = new JRadioButton("Bs");
-        monedaDolar = new JRadioButton("$", true);
+        
+        monedaBs = new JRadioButton("Bs", true);
+        monedaDolar = new JRadioButton("$");
+        
         ButtonGroup monedaGroup = new ButtonGroup();
         monedaGroup.add(monedaBs);
         monedaGroup.add(monedaDolar);
@@ -819,7 +961,9 @@ public class CapelliSalesWindow extends JFrame {
         gbcPago.gridx = 0;
         gbcPago.gridy = 1;
         pagoPanel.add(new JLabel("Método:"), gbcPago);
-        pagoComboBox = new JComboBox<>(metodosPago.toArray(new String[0]));
+        
+        pagoComboBox = new JComboBox<>(metodosPagoBs.toArray(new String[0]));
+        
         gbcPago.gridx = 1;
         gbcPago.gridy = 1;
         gbcPago.weightx = 1.0;
@@ -834,7 +978,7 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.add(new JLabel("Destino:"));
         pagoMovilPanel.add(pagoMovilCapelliRadio);
         pagoMovilPanel.add(pagoMovilRosaRadio);
-        pagoMovilPanel.setVisible(false);
+        pagoMovilPanel.setVisible(true); 
 
         gbcPago.gridx = 1;
         gbcPago.gridy = 2;
@@ -858,8 +1002,11 @@ public class CapelliSalesWindow extends JFrame {
         gbcPago.weightx = 1.0;
         pagoPanel.add(vueltoLabel, gbcPago);
 
-        ActionListener updateListener = e -> actualizarTotales();
-        descuentoComboBox.addActionListener(updateListener);
+        ActionListener updateListener = e -> {
+            actualizarMetodosPago();
+            actualizarTotales();
+        };
+        descuentoComboBox.addActionListener(e -> actualizarTotales()); 
         monedaBs.addActionListener(updateListener);
         monedaDolar.addActionListener(updateListener);
 
@@ -892,11 +1039,24 @@ public class CapelliSalesWindow extends JFrame {
         return panel;
     }
 
+    private void actualizarMetodosPago() {
+        pagoComboBox.removeAllItems();
+        if (monedaBs.isSelected()) {
+            metodosPagoBs.forEach(pagoComboBox::addItem);
+        } else {
+            metodosPagoUsd.forEach(pagoComboBox::addItem);
+        }
+        String selectedMethod = (String) pagoComboBox.getSelectedItem();
+        pagoMovilPanel.setVisible("Pago Movil".equals(selectedMethod));
+    }
+
+
     private void actualizarTotales() {
         double subtotal = serviciosAgregados.stream().mapToDouble(VentaServicio::getPrecio).sum();
+        
         double propina = 0.0;
         try {
-            propina = Double.parseDouble(propinaField.getText());
+            propina = Double.parseDouble(propinaField.getText().replace(",", "."));
         } catch (NumberFormatException ignored) {
         }
 
@@ -907,22 +1067,32 @@ public class CapelliSalesWindow extends JFrame {
             descuento = subtotal * AppConfig.getPromoDiscountPercentage();
             LOGGER.fine("Descuento por promoción aplicado: " + descuento);
         }
+        
+        double subtotalConDescuento = subtotal - descuento;
+        double iva = subtotalConDescuento * AppConfig.getVatPercentage();
+        double total = subtotalConDescuento + iva + propina;
 
-        double total = subtotal - descuento + propina;
         DecimalFormat df = new DecimalFormat("#,##0.00");
         double montoPagado = 0.0;
         try {
-            montoPagado = Double.parseDouble(montoPagadoField.getText());
+            montoPagado = Double.parseDouble(montoPagadoField.getText().replace(",", "."));
         } catch (NumberFormatException ignored) {
         }
+        
+        double tasa = tasaBcv; 
 
         if (monedaBs.isSelected()) {
-            double tasa = tasaBcv;
-
+            subtotalLabel.setText("Subtotal (Bs): " + df.format(subtotal * tasa));
+            descuentoLabel.setText("Descuento (Bs): " + df.format(descuento * tasa));
+            ivaLabel.setText("IVA (Bs): " + df.format(iva * tasa));
+            propinaLabelGUI.setText("Propina (Bs): " + df.format(propina * tasa));
             totalLabel.setText("Total (Bs): " + df.format(total * tasa));
             vueltoLabel.setText(df.format(montoPagado - (total * tasa)));
         } else {
-
+            subtotalLabel.setText("Subtotal ($): " + df.format(subtotal));
+            descuentoLabel.setText("Descuento ($): " + df.format(descuento));
+            ivaLabel.setText("IVA ($): " + df.format(iva));
+            propinaLabelGUI.setText("Propina ($): " + df.format(propina));
             totalLabel.setText("Total ($): " + df.format(total));
             vueltoLabel.setText(df.format(montoPagado - total));
         }
@@ -944,21 +1114,21 @@ public class CapelliSalesWindow extends JFrame {
 
         double propina = 0.0;
         try {
-            propina = Double.parseDouble(propinaField.getText());
+            propina = Double.parseDouble(propinaField.getText().replace(",", "."));
         } catch (NumberFormatException e) {
-            // Se maneja en la validación
         }
 
         String tipoDesc = Objects.requireNonNull(descuentoComboBox.getSelectedItem()).toString();
         double descuento = tipoDesc.equals("Promoción") ? subtotal * AppConfig.getPromoDiscountPercentage() : 0.0;
 
-        double total = subtotal - descuento + propina;
+        double subtotalConDescuento = subtotal - descuento;
+        double iva = subtotalConDescuento * AppConfig.getVatPercentage();
+        double total = subtotalConDescuento + iva + propina;
 
         double montoPagado = 0.0;
         try {
-            montoPagado = Double.parseDouble(montoPagadoField.getText());
+            montoPagado = Double.parseDouble(montoPagadoField.getText().replace(",", "."));
         } catch (NumberFormatException e) {
-            // Se maneja en la validación
         }
 
         String metodoPago = pagoComboBox.getSelectedItem() != null
@@ -967,19 +1137,18 @@ public class CapelliSalesWindow extends JFrame {
 
         String moneda = monedaDolar.isSelected() ? "$" : "Bs";
 
-        double totalEnDolares = total;
+        double totalEnDolares = total; 
         double montoPagadoEnDolares = montoPagado; 
 
         if (moneda.equals("Bs")) {
-
             montoPagadoEnDolares = montoPagado / tasaBcv;
         }
-
 
         ValidationResult result = VentaValidator.validateVenta(
                 serviciosParaValidar,
                 subtotal,
                 descuento,
+                iva, 
                 propina,
                 totalEnDolares, 
                 montoPagadoEnDolares, 
@@ -1026,48 +1195,53 @@ public class CapelliSalesWindow extends JFrame {
 
         Connection conn = null;
         long saleId = -1;
+        
+        int correlativeToSave = ConfigManager.getCurrentCorrelative();
 
         try {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            String sqlSale = "INSERT INTO sales (client_id, subtotal, discount_type, "
-                    + "discount_amount, total, payment_method, currency, payment_destination, bcv_rate_at_sale) " 
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"; 
+            java.util.Date saleDateUtil = historicalSaleCheck.isSelected() ? 
+                (java.util.Date) dateSpinner.getValue() : 
+                new java.util.Date();
+            java.sql.Timestamp saleDateSql = new java.sql.Timestamp(saleDateUtil.getTime());
 
-            // 1. Preparar el PreparedStatement SIN pedir generated keys
+            String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
+                    + "discount_amount, vat_amount, total, payment_method, currency, "
+                    + "payment_destination, bcv_rate_at_sale, correlative_number) " 
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
             try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
+                
                 if (clienteActual != null) {
                     pstmt.setInt(1, clienteActual.getId());
                 } else {
                     pstmt.setNull(1, java.sql.Types.INTEGER);
                 }
-
-                pstmt.setDouble(2, subtotal);
-                pstmt.setString(3, tipoDesc);
-                pstmt.setDouble(4, descuento);
-                pstmt.setDouble(5, totalEnDolares);
-
-                pstmt.setString(6, metodoPago);
-                pstmt.setString(7, moneda);
-
+                pstmt.setTimestamp(2, saleDateSql); 
+                pstmt.setDouble(3, subtotal); 
+                pstmt.setString(4, tipoDesc); 
+                pstmt.setDouble(5, descuento); 
+                pstmt.setDouble(6, iva); 
+                pstmt.setDouble(7, totalEnDolares); 
+                pstmt.setString(8, metodoPago); 
+                pstmt.setString(9, moneda); 
                 if (destinoPagoMovil != null) {
-                    pstmt.setString(8, destinoPagoMovil);
+                    pstmt.setString(10, destinoPagoMovil); 
                 } else {
-                    pstmt.setNull(8, java.sql.Types.VARCHAR);
+                    pstmt.setNull(10, java.sql.Types.VARCHAR); 
                 }
-                
-                pstmt.setDouble(9, tasaBcv); 
-
+                pstmt.setDouble(11, tasaBcv); 
+                pstmt.setString(12, String.valueOf(correlativeToSave));
                 pstmt.executeUpdate();
             }
 
-            // 2. Obtener el ID con una consulta separada
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()")) {
                 if (rs.next()) {
                     saleId = rs.getLong(1);
-                    LOGGER.info("Venta insertada con ID: " + saleId);
+                    LOGGER.info("Venta insertada con ID: " + saleId + ", Correlativo: " + correlativeToSave);
                 } else {
                     throw new SQLException("Error al obtener el ID de la venta generada (last_insert_rowid falló)");
                 }
@@ -1080,12 +1254,10 @@ public class CapelliSalesWindow extends JFrame {
                 for (VentaServicio vs : serviciosAgregados) {
                     int serviceId = getServiceId(vs.getServicio(), conn);
                     int employeeId = getEmployeeIdByName(vs.getTrabajadora(), conn);
-
                     pstmt.setLong(1, saleId);
                     pstmt.setInt(2, serviceId);
                     pstmt.setInt(3, employeeId);
                     pstmt.setDouble(4, vs.getPrecio());
-
                     pstmt.addBatch();
                 }
 
@@ -1100,11 +1272,9 @@ public class CapelliSalesWindow extends JFrame {
                     String destinatarioPropina = propinaTrabajadoraComboBox.getSelectedItem() != null
                             ? propinaTrabajadoraComboBox.getSelectedItem().toString()
                             : "Salón";
-
                     pstmt.setLong(1, saleId);
                     pstmt.setString(2, destinatarioPropina);
                     pstmt.setDouble(3, propina);
-
                     pstmt.executeUpdate();
                     LOGGER.info("Propina insertada: $" + propina + " para " + destinatarioPropina);
                 }
@@ -1112,6 +1282,10 @@ public class CapelliSalesWindow extends JFrame {
             conn.commit();
 
             LOGGER.info("Venta registrada exitosamente. ID: " + saleId);
+            
+            int nextCorrelative = correlativeToSave + 1;
+            ConfigManager.setCorrelative(nextCorrelative);
+            loadApplicationSettings();
 
             String mensajeExito = construirMensajeExito(saleId, totalEnDolares, moneda,
                     montoPagadoEnDolares, tasaBcv);
@@ -1134,12 +1308,10 @@ public class CapelliSalesWindow extends JFrame {
             String mensajeError = "Error al registrar la venta en la base de datos:\n\n"
                     + e.getMessage() + "\n\n"
                     + "Por favor, verifique los datos e intente nuevamente.";
-
             JOptionPane.showMessageDialog(this,
                     mensajeError,
                     "❌ Error de Transacción",
                     JOptionPane.ERROR_MESSAGE);
-
         } finally {
             try {
                 if (conn != null) {
@@ -1159,7 +1331,7 @@ public class CapelliSalesWindow extends JFrame {
         String sql = "SELECT service_id FROM services WHERE name = ?";
     
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, originalServiceName); // Usar el nombre original
+            pstmt.setString(1, originalServiceName); 
             ResultSet rs = pstmt.executeQuery();
     
             if (rs.next()) {
@@ -1173,14 +1345,10 @@ public class CapelliSalesWindow extends JFrame {
         }
     }
 
-    /**
-     * Obtiene el ID de la trabajadora basado en el nombre completo.
-     */
     private int getEmployeeIdByName(String nombreCompleto, Connection conn) throws SQLException {
-        // Iterar sobre la lista de trabajadoras cargada en memoria
         for (Trabajadora t : trabajadorasList) {
             if (t.getNombreCompleto().equals(nombreCompleto)) {
-                return t.getId(); // Encontrado
+                return t.getId(); 
             }
         }
 
@@ -1196,6 +1364,7 @@ public class CapelliSalesWindow extends JFrame {
         mensaje.append("Venta registrada exitosamente\n\n");
         mensaje.append("═══════════════════════════════════\n");
         mensaje.append("ID de Venta: ").append(saleId).append("\n");
+        mensaje.append("N° Factura: ").append(currentCorrelative).append("\n"); // MODIFICADO
         mensaje.append("───────────────────────────────────\n");
 
         if (moneda.equals("$")) {
@@ -1225,8 +1394,6 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private Service obtenerServicioPorNombre(String nombre) {
-        // Ahora consulta el Map en memoria, que se carga al inicio.
-        // Es mucho más rápido y no golpea la BD.
         Service service = serviciosMap.get(nombre);
         if (service == null) {
             LOGGER.log(Level.SEVERE, "Servicio no encontrado en el Map: " + nombre);
@@ -1240,15 +1407,25 @@ public class CapelliSalesWindow extends JFrame {
         cedulaTipoComboBox.setSelectedItem("V");
         cedulaNumeroField.setText("");
         nombreClienteLabel.setText("Nombre: No cargado");
+        
+        historicalSaleCheck.setSelected(false);
+        dateSpinner.setValue(new Date());
+        manualBcvField.setText("0.00");
+        toggleHistoricalMode();
+        
         serviciosAgregados.clear();
         tableModel.setRowCount(0);
         propinaField.setText("0.00");
         montoPagadoField.setText("0.00");
         descuentoComboBox.setSelectedIndex(0);
+        
+        monedaBs.setSelected(true);
+        actualizarMetodosPago();
+        
         actualizarTotales();
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SQLException {
         LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");
         AppConfig.printConfiguration();
 

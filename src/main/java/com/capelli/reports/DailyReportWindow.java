@@ -232,7 +232,7 @@ public class DailyReportWindow extends JFrame {
         }
         
         SwingUtilities.invokeLater(() -> {
-            Database.initialize(); 
+            Database.initialize();
             new DailyReportWindow().setVisible(true);
         });
     }

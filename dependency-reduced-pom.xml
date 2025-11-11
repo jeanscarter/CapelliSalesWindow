@@ -9,13 +9,6 @@
       <plugin>
         <artifactId>maven-jar-plugin</artifactId>
         <version>3.2.2</version>
-        <configuration>
-          <archive>
-            <manifest>
-              <mainClass>com.capelli.capellisaleswindow.CapelliSalesWindow</mainClass>
-            </manifest>
-          </archive>
-        </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-shade-plugin</artifactId>
@@ -27,6 +20,8 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>uber</shadedClassifierName>
               <transformers>
                 <transformer>
                   <mainClass>com.capelli.capellisaleswindow.CapelliSalesWindow</mainClass>
