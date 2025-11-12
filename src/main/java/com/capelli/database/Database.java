@@ -33,8 +33,7 @@ public class Database {
             conn = DriverManager.getConnection(getDatabaseUrl());
 
             try (Statement stmt = conn.createStatement()) {
-                // Activa las llaves foráneas para SQLite
-                stmt.execute("PRAGMA foreign_keys = ON;"); 
+                stmt.execute("PRAGMA foreign_keys = ON;");
                 LOGGER.fine("PRAGMA foreign_keys = ON ejecutado.");
             }
 
@@ -47,19 +46,22 @@ public class Database {
 
     /**
      * Inserta o actualiza un servicio en la base de datos.
-     * Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE).
+     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
+     * evitar violaciones de Foreign Key.
      */
     private static void addOrUpdateService(Connection conn, String name, double pCorto, double pMedio, double pLargo, double pExt, boolean permiteCliente, double pCliente) throws SQLException {
         
-        String sql = "INSERT INTO services (name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto) " +
-                     "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+        // CORRECCIÓN: Se añade 'is_active = 1' para asegurar que los servicios actualizados/creados estén activos
+        String sql = "INSERT INTO services (name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto, is_active) " +
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, 1) " + // Añadido 'is_active' y valor '1'
                      "ON CONFLICT(name) DO UPDATE SET " +
                      "  price_corto = excluded.price_corto, " +
                      "  price_medio = excluded.price_medio, " +
                      "  price_largo = excluded.price_largo, " +
                      "  price_ext = excluded.price_ext, " +
                      "  permite_cliente_producto = excluded.permite_cliente_producto, " +
-                     "  price_cliente_producto = excluded.price_cliente_producto";
+                     "  price_cliente_producto = excluded.price_cliente_producto, " +
+                     "  is_active = 1"; // Añadido 'is_active = 1' en la actualización
 
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, name);
@@ -75,7 +77,8 @@ public class Database {
     
     /**
      * Inserta o actualiza una trabajadora.
-     * Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE).
+     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
+     * evitar violaciones de Foreign Key.
      */
     private static void addOrUpdateTrabajadora(Connection conn, String nombres, String apellidos, String tipo_ci, String numero_ci, String telefono) throws SQLException {
         
@@ -134,7 +137,7 @@ public class Database {
 
 
     /**
-     * Inicializa la base de datos creando las tablas necesarias y datos iniciales.
+     * Inicializa la base de datos creando las tablas necesarias.
      */
     public static void initialize() {
         if (!AppConfig.shouldInitDatabaseOnStartup()) {
@@ -144,7 +147,6 @@ public class Database {
 
         LOGGER.info("Inicializando base de datos...");
 
-        // Definiciones de tablas (SQL)
         String sqlClients = "CREATE TABLE IF NOT EXISTS clients (\n"
                 + "    client_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    cedula TEXT NOT NULL UNIQUE,\n"
@@ -181,6 +183,7 @@ public class Database {
                 + "    FOREIGN KEY (trabajadora_id) REFERENCES trabajadoras (id) ON DELETE CASCADE\n"
                 + ");";
 
+        // ===== INICIO DE MODIFICACIÓN: Añadida columna 'is_active' =====
         String sqlServices = "CREATE TABLE IF NOT EXISTS services (\n"
                 + "    service_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    name TEXT NOT NULL UNIQUE,\n"
@@ -190,10 +193,10 @@ public class Database {
                 + "    price_ext REAL DEFAULT 0.0,\n"
                 + "    permite_cliente_producto BOOLEAN DEFAULT 0,\n"
                 + "    price_cliente_producto REAL DEFAULT 0.0,\n"
-                + "    service_category TEXT \n" // Agregada en la inicialización
+                + "    is_active BOOLEAN DEFAULT 1\n" // <-- NUEVA COLUMNA
                 + ");";
+        // ===== FIN DE MODIFICACIÓN =====
 
-        // Tabla 'sales' (Actualizada para no incluir pagos)
         String sqlSales = "CREATE TABLE IF NOT EXISTS sales (\n"
                 + "    sale_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    client_id INTEGER,\n"
@@ -202,13 +205,9 @@ public class Database {
                 + "    discount_type TEXT,\n"
                 + "    discount_amount REAL,\n"
                 + "    total REAL NOT NULL,\n"
-                + "    bcv_rate_at_sale REAL DEFAULT 0.0,\n" // Agregada en la inicialización/alter
-                + "    vat_amount REAL DEFAULT 0.0,\n" // Agregada en la inicialización/alter
-                + "    correlative_number TEXT,\n" // Agregada en la inicialización/alter
                 + "    FOREIGN KEY (client_id) REFERENCES clients (client_id)\n"
                 + ");";
 
-        // NUEVA TABLA: 'sale_payments'
         String sqlSalePayments = "CREATE TABLE IF NOT EXISTS sale_payments (\n"
                 + "    payment_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    sale_id INTEGER NOT NULL,\n"
@@ -228,7 +227,7 @@ public class Database {
                 + "    employee_id INTEGER NOT NULL,\n"
                 + "    price_at_sale REAL NOT NULL,\n"
                 + "    FOREIGN KEY (sale_id) REFERENCES sales (sale_id),\n"
-                + "    FOREIGN KEY (service_id) REFERENCES services (service_id),\n"
+                + "    FOREIGN KEY (service_id) REFERENCES services (service_id),\n" // <-- Esta es la restricción que falló
                 + "    FOREIGN KEY (employee_id) REFERENCES trabajadoras (id)\n"
                 + ");";
 
@@ -256,7 +255,6 @@ public class Database {
 
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
 
-            // 1. Creación/Verificación de Tablas
             stmt.execute(sqlClients);
             LOGGER.info("Tabla 'clients' verificada/creada");
 
@@ -287,14 +285,10 @@ public class Database {
             stmt.execute(sqlCommissionRules);
             LOGGER.info("Tabla 'trabajadora_commission_rules' verificada/creada");
             
-            // Inicialización de Correlativo (app_settings)
             String sqlInitCorr = "INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES ('" + ConfigManager.KEY_CORRELATIVE + "', '1');";
             stmt.execute(sqlInitCorr);
             LOGGER.info("Correlativo inicial verificado/creado.");
             
-            // 2. ALTER TABLE para nuevas columnas en 'sales' y 'services'
-            
-            // Columna 'bcv_rate_at_sale' en 'sales'
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN bcv_rate_at_sale REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'bcv_rate_at_sale' agregada a la tabla 'sales'.");
@@ -306,7 +300,6 @@ public class Database {
                 }
             }
             
-            // Columna 'vat_amount' en 'sales'
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN vat_amount REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'vat_amount' agregada a la tabla 'sales'.");
@@ -318,7 +311,6 @@ public class Database {
                 }
             }
             
-            // Columna 'correlative_number' en 'sales'
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN correlative_number TEXT");
                 LOGGER.info("Columna 'correlative_number' agregada a la tabla 'sales'.");
@@ -330,7 +322,6 @@ public class Database {
                 }
             }
             
-            // Columna 'service_category' en 'services'
             try {
                 stmt.execute("ALTER TABLE services ADD COLUMN service_category TEXT");
                 LOGGER.info("Columna 'service_category' agregada a la tabla 'services'.");
@@ -341,12 +332,24 @@ public class Database {
                     LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para service_category", e);
                 }
             }
+            
+            // ===== INICIO DE MODIFICACIÓN: Añadida columna 'is_active' =====
+            try {
+                stmt.execute("ALTER TABLE services ADD COLUMN is_active BOOLEAN DEFAULT 1");
+                LOGGER.info("Columna 'is_active' agregada a la tabla 'services'.");
+            } catch (SQLException e) {
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'is_active' ya existe en 'services'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para is_active", e);
+                }
+            }
+            // ===== FIN DE MODIFICACIÓN =====
 
-            // 3. Inicialización de Datos: Servicios
-
+            // ===== INICIO DE MODIFICACIÓN DE SERVICIOS =====
             LOGGER.info("Agregando/Actualizando lista de servicios...");
             
-            // Servicios con precios actualizados y nuevos
+            // Servicios existentes (modificados)
             addOrUpdateService(conn, "Lavado", 10.0, 0.0, 0.0, 0.0, true, 8.0); 
             addOrUpdateService(conn, "Secado", 10.0, 12.0, 15.0, 20.0, false, 0.0);
             addOrUpdateService(conn, "Ondas", 15.0, 20.0, 35.0, 40.0, false, 0.0);
@@ -381,7 +384,7 @@ public class Database {
             addOrUpdateService(conn, "Productos", 35.0, 0.0, 0.0, 0.0, false, 0.0);
 
             LOGGER.info("Lista de servicios actualizada.");
-
+            
             // Asignar categorías de servicio (actualizado)
             stmt.execute("UPDATE services SET service_category = 'Peluqueria' WHERE name IN ('Secado', 'Corte Puntas', 'Corte Elaborado', 'Peinados', 'Ondas', 'Planchado', 'Maquillaje', 'Pestañas', 'Cejas', 'Bozo', 'Secado con extensiones')");
             stmt.execute("UPDATE services SET service_category = 'Quimico' WHERE name IN ('Color (Tinte)', 'Mechas', 'Keratina', 'Hidratación solo', 'Hidratación Fusio-Dose')");
@@ -390,14 +393,19 @@ public class Database {
             stmt.execute("UPDATE services SET service_category = 'Extensiones' WHERE name IN ('Extensiones (Medio Paquete)', 'Extensiones (1 Paquete)', 'Extensiones (2 Paquetes)', 'Extensiones (3 Paquetes)', 'Extensiones (4 Paquetes)')");
             stmt.execute("UPDATE services SET service_category = 'Otros' WHERE name IN ('Productos')");
             LOGGER.info("Categorías de servicio por defecto re-asignadas.");
+            
+            // ===== INICIO DE MODIFICACIÓN: Desactivar servicios obsoletos en lugar de borrarlos =====
+            try {
+                stmt.execute("UPDATE services SET is_active = 0 WHERE name IN ('Hidratación + Secado', 'Aplicación de Tinte', 'Mantenimiento', 'Extensiones')");
+                LOGGER.info("Servicios obsoletos desactivados (is_active = 0).");
+            } catch (SQLException e) {
+                LOGGER.log(Level.SEVERE, "Error al desactivar servicios obsoletos", e);
+            }
+            // ===== FIN DE MODIFICACIÓN =====
+            
+            // ===== FIN DE MODIFICACIÓN DE SERVICIOS =====
 
-            // Eliminar servicios obsoletos (si existían)
-            stmt.execute("DELETE FROM services WHERE name = 'Hidratación + Secado'");
-            stmt.execute("DELETE FROM services WHERE name = 'Aplicación de Tinte'");
-            stmt.execute("DELETE FROM services WHERE name = 'Mantenimiento'");
-            LOGGER.info("Servicios obsoletos eliminados.");
-
-            // 4. Inicialización de Datos: Trabajadoras y Cuentas
+        
             LOGGER.info("Agregando/Actualizando lista de trabajadoras y cuentas...");
 
             addOrUpdateTrabajadora(conn, "Dayana", "Govea", "V", "18522231", "04127915851");
@@ -431,6 +439,7 @@ public class Database {
             addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340077650773172568", false);
 
             LOGGER.info("Lista de trabajadoras y cuentas actualizada.");
+
 
             LOGGER.info("Base de datos inicializada correctamente");
 

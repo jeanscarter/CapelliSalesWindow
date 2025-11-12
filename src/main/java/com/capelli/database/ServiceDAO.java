@@ -26,14 +26,17 @@ public class ServiceDAO {
     }
 
     /**
-     * Devuelve todos los servicios como una Lista. (MÉTODO REQUERIDO)
+     * Devuelve todos los servicios como una Lista.
+     * (MODIFICADO para traer solo servicios activos)
      */
     public List<Service> getAll() throws SQLException {
         List<Service> servicesList = new ArrayList<>();
-        // AÑADIDO: service_category
+        
+        // ===== INICIO DE MODIFICACIÓN: Añadido "WHERE is_active = 1" =====
         String sql = "SELECT service_id, name, price_corto, price_medio, price_largo, price_ext, "
                  + "permite_cliente_producto, price_cliente_producto, service_category "
-                 + "FROM services ORDER BY name";
+                 + "FROM services WHERE is_active = 1 ORDER BY name";
+        // ===== FIN DE MODIFICACIÓN =====
 
         try (Connection conn = Database.connect(); 
              Statement stmt = conn.createStatement(); 
@@ -49,7 +52,7 @@ public class ServiceDAO {
                 service.setPrice_ext(rs.getDouble("price_ext"));
                 service.setPermiteClienteProducto(rs.getBoolean("permite_cliente_producto"));
                 service.setPriceClienteProducto(rs.getDouble("price_cliente_producto"));
-                service.setService_category(rs.getString("service_category")); // AÑADIDO
+                service.setService_category(rs.getString("service_category"));
                 servicesList.add(service);
             }
         }
@@ -59,7 +62,7 @@ public class ServiceDAO {
     public void save(Service service) throws SQLException {
         if (service.getId() == 0) {
        
-            // AÑADIDO: service_category
+            // AÑADIDO: service_category (is_active se maneja por DB default)
             String sql = "INSERT INTO services(name, price_corto, price_medio, price_largo, price_ext, "
                        + "permite_cliente_producto, price_cliente_producto, service_category) "
                        + "VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
@@ -71,15 +74,15 @@ public class ServiceDAO {
                 pstmt.setDouble(5, service.getPrice_ext());
                 pstmt.setBoolean(6, service.isPermiteClienteProducto()); 
                 pstmt.setDouble(7, service.getPriceClienteProducto());  
-                pstmt.setString(8, service.getService_category()); // AÑADIDO
+                pstmt.setString(8, service.getService_category()); 
                 pstmt.executeUpdate();
             }
         } else {
        
-            // AÑADIDO: service_category
+            // AÑADIDO: service_category (is_active se asume 1 si se edita)
             String sql = "UPDATE services SET name = ?, price_corto = ?, price_medio = ?, price_largo = ?, "
                        + "price_ext = ?, permite_cliente_producto = ?, price_cliente_producto = ?, "
-                       + "service_category = ? "
+                       + "service_category = ?, is_active = 1 " // <-- Asegura que al editar se reactive
                        + "WHERE service_id = ?";
             try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, service.getName());
@@ -89,7 +92,7 @@ public class ServiceDAO {
                 pstmt.setDouble(5, service.getPrice_ext());
                 pstmt.setBoolean(6, service.isPermiteClienteProducto()); 
                 pstmt.setDouble(7, service.getPriceClienteProducto());    
-                pstmt.setString(8, service.getService_category()); // AÑADIDO
+                pstmt.setString(8, service.getService_category()); 
                 pstmt.setInt(9, service.getId()); // CAMBIO DE ÍNDICE
                 pstmt.executeUpdate();
             }
@@ -97,7 +100,8 @@ public class ServiceDAO {
     }
 
     public void delete(int id) throws SQLException {
-        String sql = "DELETE FROM services WHERE service_id = ?";
+        // MODIFICACIÓN: No borramos, desactivamos
+        String sql = "UPDATE services SET is_active = 0 WHERE service_id = ?";
         try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setInt(1, id);
             pstmt.executeUpdate();
