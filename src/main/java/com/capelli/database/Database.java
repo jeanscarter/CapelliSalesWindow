@@ -33,7 +33,8 @@ public class Database {
             conn = DriverManager.getConnection(getDatabaseUrl());
 
             try (Statement stmt = conn.createStatement()) {
-                stmt.execute("PRAGMA foreign_keys = ON;");
+                // Activa las llaves foráneas para SQLite
+                stmt.execute("PRAGMA foreign_keys = ON;"); 
                 LOGGER.fine("PRAGMA foreign_keys = ON ejecutado.");
             }
 
@@ -46,8 +47,7 @@ public class Database {
 
     /**
      * Inserta o actualiza un servicio en la base de datos.
-     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
-     * evitar violaciones de Foreign Key.
+     * Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE).
      */
     private static void addOrUpdateService(Connection conn, String name, double pCorto, double pMedio, double pLargo, double pExt, boolean permiteCliente, double pCliente) throws SQLException {
         
@@ -75,8 +75,7 @@ public class Database {
     
     /**
      * Inserta o actualiza una trabajadora.
-     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
-     * evitar violaciones de Foreign Key.
+     * Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE).
      */
     private static void addOrUpdateTrabajadora(Connection conn, String nombres, String apellidos, String tipo_ci, String numero_ci, String telefono) throws SQLException {
         
@@ -135,7 +134,7 @@ public class Database {
 
 
     /**
-     * Inicializa la base de datos creando las tablas necesarias.
+     * Inicializa la base de datos creando las tablas necesarias y datos iniciales.
      */
     public static void initialize() {
         if (!AppConfig.shouldInitDatabaseOnStartup()) {
@@ -145,6 +144,7 @@ public class Database {
 
         LOGGER.info("Inicializando base de datos...");
 
+        // Definiciones de tablas (SQL)
         String sqlClients = "CREATE TABLE IF NOT EXISTS clients (\n"
                 + "    client_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    cedula TEXT NOT NULL UNIQUE,\n"
@@ -189,10 +189,11 @@ public class Database {
                 + "    price_largo REAL DEFAULT 0.0,\n"
                 + "    price_ext REAL DEFAULT 0.0,\n"
                 + "    permite_cliente_producto BOOLEAN DEFAULT 0,\n"
-                + "    price_cliente_producto REAL DEFAULT 0.0\n"
+                + "    price_cliente_producto REAL DEFAULT 0.0,\n"
+                + "    service_category TEXT \n" // Agregada en la inicialización
                 + ");";
 
-        // ===== MODIFICACIÓN: Tabla 'sales' ya no contiene campos de pago =====
+        // Tabla 'sales' (Actualizada para no incluir pagos)
         String sqlSales = "CREATE TABLE IF NOT EXISTS sales (\n"
                 + "    sale_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    client_id INTEGER,\n"
@@ -201,10 +202,13 @@ public class Database {
                 + "    discount_type TEXT,\n"
                 + "    discount_amount REAL,\n"
                 + "    total REAL NOT NULL,\n"
+                + "    bcv_rate_at_sale REAL DEFAULT 0.0,\n" // Agregada en la inicialización/alter
+                + "    vat_amount REAL DEFAULT 0.0,\n" // Agregada en la inicialización/alter
+                + "    correlative_number TEXT,\n" // Agregada en la inicialización/alter
                 + "    FOREIGN KEY (client_id) REFERENCES clients (client_id)\n"
                 + ");";
 
-        // ===== NUEVA TABLA: 'sale_payments' para pagos múltiples =====
+        // NUEVA TABLA: 'sale_payments'
         String sqlSalePayments = "CREATE TABLE IF NOT EXISTS sale_payments (\n"
                 + "    payment_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    sale_id INTEGER NOT NULL,\n"
@@ -252,6 +256,7 @@ public class Database {
 
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
 
+            // 1. Creación/Verificación de Tablas
             stmt.execute(sqlClients);
             LOGGER.info("Tabla 'clients' verificada/creada");
 
@@ -282,10 +287,14 @@ public class Database {
             stmt.execute(sqlCommissionRules);
             LOGGER.info("Tabla 'trabajadora_commission_rules' verificada/creada");
             
+            // Inicialización de Correlativo (app_settings)
             String sqlInitCorr = "INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES ('" + ConfigManager.KEY_CORRELATIVE + "', '1');";
             stmt.execute(sqlInitCorr);
             LOGGER.info("Correlativo inicial verificado/creado.");
             
+            // 2. ALTER TABLE para nuevas columnas en 'sales' y 'services'
+            
+            // Columna 'bcv_rate_at_sale' en 'sales'
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN bcv_rate_at_sale REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'bcv_rate_at_sale' agregada a la tabla 'sales'.");
@@ -297,6 +306,7 @@ public class Database {
                 }
             }
             
+            // Columna 'vat_amount' en 'sales'
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN vat_amount REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'vat_amount' agregada a la tabla 'sales'.");
@@ -308,6 +318,7 @@ public class Database {
                 }
             }
             
+            // Columna 'correlative_number' en 'sales'
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN correlative_number TEXT");
                 LOGGER.info("Columna 'correlative_number' agregada a la tabla 'sales'.");
@@ -319,17 +330,10 @@ public class Database {
                 }
             }
             
+            // Columna 'service_category' en 'services'
             try {
                 stmt.execute("ALTER TABLE services ADD COLUMN service_category TEXT");
                 LOGGER.info("Columna 'service_category' agregada a la tabla 'services'.");
-                
-                stmt.execute("UPDATE services SET service_category = 'Peluqueria' WHERE name IN ('Secado', 'Corte Puntas', 'Corte Elaborado', 'Peinados')");
-                stmt.execute("UPDATE services SET service_category = 'Quimico' WHERE name IN ('Color (Tinte)', 'Mechas', 'Keratina', 'Aplicación de Tinte')");
-                stmt.execute("UPDATE services SET service_category = 'Manos/Pies' WHERE name IN ('Manicure Tradicional', 'Pedicure Tradicional')");
-                stmt.execute("UPDATE services SET service_category = 'Lavado' WHERE name = 'Lavado'");
-                stmt.execute("UPDATE services SET service_category = 'Extensiones' WHERE name IN ('Mantenimiento', 'Extensiones')");
-                LOGGER.info("Categorías de servicio por defecto asignadas.");
-                
             } catch (SQLException e) {
                 if (e.getMessage().contains("duplicate column name")) {
                     LOGGER.info("Columna 'service_category' ya existe en 'services'.");
@@ -338,27 +342,62 @@ public class Database {
                 }
             }
 
+            // 3. Inicialización de Datos: Servicios
+
             LOGGER.info("Agregando/Actualizando lista de servicios...");
+            
+            // Servicios con precios actualizados y nuevos
             addOrUpdateService(conn, "Lavado", 10.0, 0.0, 0.0, 0.0, true, 8.0); 
-            addOrUpdateService(conn, "Hidratación + Secado", 20.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Secado", 12.0, 15.0, 20.0, 35.0, false, 0.0);
-            addOrUpdateService(conn, "Ondas", 45.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Secado", 10.0, 12.0, 15.0, 20.0, false, 0.0);
+            addOrUpdateService(conn, "Ondas", 15.0, 20.0, 35.0, 40.0, false, 0.0);
             addOrUpdateService(conn, "Corte Puntas", 20.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Corte Elaborado", 25.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Maquillaje", 60.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Peinados", 40.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Color (Tinte)", 50.0, 0.0, 0.0, 0.0, false, 0.0); 
-            addOrUpdateService(conn, "Mechas", 80.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Aplicación de Tinte", 30.0, 0.0, 0.0, 0.0, true, 25.0); 
-            addOrUpdateService(conn, "Cejas", 10.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Bozo", 12.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Manicure Tradicional", 10.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Pedicure Tradicional", 15.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Keratina", 60.0, 0.0, 0.0, 0.0, false, 0.0);
-            addOrUpdateService(conn, "Mantenimiento", 120.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Maquillaje", 60.0, 70.0, 80.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Peinados", 40.0, 50.0, 60.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Color (Tinte)", 40.0, 50.0, 0.0, 0.0, true, 25.0); 
+            addOrUpdateService(conn, "Mechas", 80.0, 100.0, 120.0, 150.0, false, 0.0);
+            addOrUpdateService(conn, "Cejas", 5.0, 8.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Bozo", 5.0, 8.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Manicure Tradicional", 12.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Pedicure Tradicional", 12.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Keratina", 60.0, 120.0, 0.0, 0.0, false, 0.0);
+            
+            // Servicios nuevos
+            addOrUpdateService(conn, "Hidratación solo", 15.0, 20.0, 25.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Hidratación Fusio-Dose", 35.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Secado con extensiones", 25.0, 30.0, 45.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Planchado", 15.0, 20.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Pestañas", 10.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Manicure Gelish", 15.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Manicure Rubber", 18.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Manicure Polygel", 20.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Pedicure Gelish", 15.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Hidratación M/P", 15.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Extensiones (Medio Paquete)", 60.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Extensiones (1 Paquete)", 120.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Extensiones (2 Paquetes)", 140.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Extensiones (3 Paquetes)", 160.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Extensiones (4 Paquetes)", 180.0, 0.0, 0.0, 0.0, false, 0.0);
+            addOrUpdateService(conn, "Productos", 35.0, 0.0, 0.0, 0.0, false, 0.0);
+
             LOGGER.info("Lista de servicios actualizada.");
 
-        
+            // Asignar categorías de servicio (actualizado)
+            stmt.execute("UPDATE services SET service_category = 'Peluqueria' WHERE name IN ('Secado', 'Corte Puntas', 'Corte Elaborado', 'Peinados', 'Ondas', 'Planchado', 'Maquillaje', 'Pestañas', 'Cejas', 'Bozo', 'Secado con extensiones')");
+            stmt.execute("UPDATE services SET service_category = 'Quimico' WHERE name IN ('Color (Tinte)', 'Mechas', 'Keratina', 'Hidratación solo', 'Hidratación Fusio-Dose')");
+            stmt.execute("UPDATE services SET service_category = 'Manos/Pies' WHERE name IN ('Manicure Tradicional', 'Pedicure Tradicional', 'Manicure Gelish', 'Manicure Rubber', 'Manicure Polygel', 'Pedicure Gelish', 'Hidratación M/P')");
+            stmt.execute("UPDATE services SET service_category = 'Lavado' WHERE name = 'Lavado'");
+            stmt.execute("UPDATE services SET service_category = 'Extensiones' WHERE name IN ('Extensiones (Medio Paquete)', 'Extensiones (1 Paquete)', 'Extensiones (2 Paquetes)', 'Extensiones (3 Paquetes)', 'Extensiones (4 Paquetes)')");
+            stmt.execute("UPDATE services SET service_category = 'Otros' WHERE name IN ('Productos')");
+            LOGGER.info("Categorías de servicio por defecto re-asignadas.");
+
+            // Eliminar servicios obsoletos (si existían)
+            stmt.execute("DELETE FROM services WHERE name = 'Hidratación + Secado'");
+            stmt.execute("DELETE FROM services WHERE name = 'Aplicación de Tinte'");
+            stmt.execute("DELETE FROM services WHERE name = 'Mantenimiento'");
+            LOGGER.info("Servicios obsoletos eliminados.");
+
+            // 4. Inicialización de Datos: Trabajadoras y Cuentas
             LOGGER.info("Agregando/Actualizando lista de trabajadoras y cuentas...");
 
             addOrUpdateTrabajadora(conn, "Dayana", "Govea", "V", "18522231", "04127915851");
@@ -392,7 +431,6 @@ public class Database {
             addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340077650773172568", false);
 
             LOGGER.info("Lista de trabajadoras y cuentas actualizada.");
-
 
             LOGGER.info("Base de datos inicializada correctamente");
 
