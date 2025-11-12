@@ -45,7 +45,7 @@ public class DailyReportWindow extends JFrame {
         setSize(550, 400);
         setLocationRelativeTo(null);
         setResizable(false);
-        loadBcvRate();
+        loadBcvRate(); // Carga la tasa actual para el caso de 'Cuentas por Cobrar'
 
         String today = new SimpleDateFormat("dd/MM/yyyy").format(new Date());
         reportDateLabel = new JLabel("Mostrando reporte para la fecha: " + today);
@@ -92,29 +92,29 @@ public class DailyReportWindow extends JFrame {
     }
     
     private void loadBcvRate() {
-    SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
-        @Override
-        protected Double doInBackground() throws Exception {
-            return BCVService.getBCVRateSafe();
-        }
-
-        @Override
-        protected void done() {
-            try {
-                double rate = get();
-                if (rate > 0) {
-                    bcvRate = rate;
-                    LOGGER.info("Tasa BCV actualizada en reporte diario: " + rate);
-                    // Recargar datos con nueva tasa
-                    loadReportData();
-                }
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error al cargar tasa BCV para reporte", e);
+        // Carga la tasa actual en segundo plano
+        SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
+            @Override
+            protected Double doInBackground() throws Exception {
+                return BCVService.getBCVRateSafe();
             }
-        }
-    };
-    worker.execute();
-}
+
+            @Override
+            protected void done() {
+                try {
+                    double rate = get();
+                    if (rate > 0) {
+                        bcvRate = rate;
+                        LOGGER.info("Tasa BCV actualizada en reporte diario: " + rate);
+                        loadReportData(); // Recargar datos con la nueva tasa
+                    }
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error al cargar tasa BCV para reporte", e);
+                }
+            }
+        };
+        worker.execute();
+    }
 
     private void loadReportData() {
         setLabelsToLoading();
@@ -125,76 +125,70 @@ public class DailyReportWindow extends JFrame {
                 double cashUsd = 0;
                 double totalBsCapelli = 0;
                 double totalBsRosa = 0;
-                double zelleUsd = 0;
+                double zelleUsd = 0; // 'Transferencia' en $
                 double receivableUsd = 0;
 
                 String todayStr = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
 
                 try (Connection conn = Database.connect()) {
                     
-                    // ===== INICIO DE MODIFICACIÓN (SQL) =====
-                    String sql = "SELECT total, currency, payment_method, discount_type, "
-                               + "payment_destination, bcv_rate_at_sale " // 1. Obtenemos la tasa guardada
-                               + "FROM sales WHERE date(sale_date, 'localtime') = ?";
-                    // ===== FIN DE MODIFICACIÓN (SQL) =====
+                    // --- 1. Calcular Cuentas por Cobrar (desde la tabla 'sales') ---
+                    String sqlReceivable = "SELECT COALESCE(SUM(total), 0.0) FROM sales "
+                                         + "WHERE date(sale_date, 'localtime') = ? "
+                                         + "AND discount_type = 'Cuenta por Cobrar'";
                     
-                    try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    try (PreparedStatement pstmt = conn.prepareStatement(sqlReceivable)) {
+                        pstmt.setString(1, todayStr);
+                        ResultSet rs = pstmt.executeQuery();
+                        if (rs.next()) {
+                            receivableUsd = rs.getDouble(1);
+                        }
+                    }
+
+                    // --- 2. Calcular todos los pagos (desde 'sale_payments') ---
+                    String sqlPayments = "SELECT "
+                                       + "    p.payment_method, p.currency, p.amount_currency, "
+                                       + "    p.amount_usd, p.payment_destination "
+                                       + "FROM sale_payments p "
+                                       + "JOIN sales s ON p.sale_id = s.sale_id "
+                                       + "WHERE date(s.sale_date, 'localtime') = ? "
+                                       + "AND s.discount_type != 'Cuenta por Cobrar'";
+
+                    try (PreparedStatement pstmt = conn.prepareStatement(sqlPayments)) {
                         pstmt.setString(1, todayStr);
                         ResultSet rs = pstmt.executeQuery();
                         
-                        // ===== INICIO DE MODIFICACIÓN (LÓGICA) =====
                         while (rs.next()) {
-                            double totalUsd = rs.getDouble("total"); // Este 'total' guardado SIEMPRE está en USD
-                            // String currency = rs.getString("currency"); // Ya no necesitamos la moneda de pago
-                            String paymentMethod = rs.getString("payment_method");
-                            String discountType = rs.getString("discount_type");
-                            String paymentDestination = rs.getString("payment_destination");
-                            double historicalBcvRate = rs.getDouble("bcv_rate_at_sale"); // 2. Usamos la tasa histórica
+                            String method = rs.getString("payment_method");
+                            String currency = rs.getString("currency");
+                            double amountCurrency = rs.getDouble("amount_currency");
+                            double amountUsd = rs.getDouble("amount_usd");
+                            String destination = rs.getString("payment_destination");
 
-                            // Fallback por si la venta es antigua y no tiene tasa guardada (bcv_rate_at_sale = 0.0)
-                            if (historicalBcvRate == 0) {
-                                historicalBcvRate = bcvRate; // Usar la tasa de hoy como último recurso
-                                LOGGER.warning("Venta sin tasa histórica encontrada, usando tasa actual como fallback.");
-                            }
-
-                            if ("Cuenta por Cobrar".equals(discountType)) {
-                                receivableUsd += totalUsd;
-                                continue; 
-                            }
-
-                            // 3. Lógica de cálculo corregida
-                            switch (paymentMethod) {
-                                case "Efectivo $":
-                                    cashUsd += totalUsd;
-                                    break;
-                                case "Transferencia": // Asumimos que Transferencia es Zelle/USD
-                                    zelleUsd += totalUsd;
-                                    break;
-                                    
-                                // --- Casos pagados en Bolívares ---
-                                case "TD":
-                                case "TC":
-                                case "Efectivo Bs":
-                                    // Convertir el total USD a Bs USANDO LA TASA HISTÓRICA
-                                    totalBsCapelli += (totalUsd * historicalBcvRate);
-                                    break;
-                                case "Pago Movil":
-                                    // Convertir el total USD a Bs USANDO LA TASA HISTÓRICA
-                                    double historicalBsTotal = totalUsd * historicalBcvRate;
-                                    if ("Rosa".equals(paymentDestination)) {
-                                        totalBsRosa += historicalBsTotal;
+                            if ("$".equals(currency)) {
+                                if ("Efectivo $".equals(method)) {
+                                    cashUsd += amountUsd;
+                                } else if ("Transferencia".equals(method)) {
+                                    zelleUsd += amountUsd;
+                                }
+                            } else if ("Bs".equals(currency)) {
+                                if ("Pago Movil".equals(method)) {
+                                    if ("Rosa".equals(destination)) {
+                                        totalBsRosa += amountCurrency;
                                     } else {
-                                        totalBsCapelli += historicalBsTotal;
+                                        totalBsCapelli += amountCurrency;
                                     }
-                                    break;
+                                } else {
+                                    // TD, TC, Efectivo Bs van a Capelli
+                                    totalBsCapelli += amountCurrency;
+                                }
                             }
-                            // ===== FIN DE MODIFICACIÓN (LÓGICA) =====
                         }
                     }
                 } catch (SQLException e) {
+                    LOGGER.log(Level.SEVERE, "Error al cargar datos del reporte diario", e);
                     SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(DailyReportWindow.this,
                             "Error al cargar los datos del reporte: " + e.getMessage(), "Error de Base de Datos", JOptionPane.ERROR_MESSAGE));
-                    e.printStackTrace();
                 }
                 return new double[]{cashUsd, totalBsCapelli, totalBsRosa, zelleUsd, receivableUsd};
             }
@@ -209,7 +203,7 @@ public class DailyReportWindow extends JFrame {
                     zelleLabel.setText("$ " + currencyFormat.format(results[3]));
                     accountsReceivableLabel.setText("$ " + currencyFormat.format(results[4]));
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LOGGER.log(Level.SEVERE, "Error al mostrar resultados del reporte", e);
                 }
             }
         };

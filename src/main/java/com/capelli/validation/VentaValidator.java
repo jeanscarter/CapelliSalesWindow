@@ -1,4 +1,3 @@
-// Archivo: src/main/java/com/capelli/validation/VentaValidator.java
 package com.capelli.validation;
 
 import java.util.List;
@@ -31,16 +30,16 @@ public class VentaValidator {
     /**
      * Valida una venta completa antes de procesarla.
      * @param iva El monto de IVA calculado
+     * @param totalPagadoEnDolares La suma de todos los pagos (ya convertidos a $)
      */
     public static ValidationResult validateVenta(
             List<ServicioVenta> servicios,
             double subtotal,
             double descuento,
-            double iva, // NUEVO
+            double iva, 
             double propina,
-            double total,
-            double montoPagado,
-            String metodoPago,
+            double total, // Total en $
+            double totalPagadoEnDolares, // NUEVO PARÁMETRO
             String tipoDescuento) {
         
         ValidationResult result = new ValidationResult();
@@ -62,7 +61,7 @@ public class VentaValidator {
         // 3. Validar montos
         CommonValidators.validateNonNegative(subtotal, "Subtotal", result);
         CommonValidators.validateNonNegative(descuento, "Descuento", result);
-        CommonValidators.validateNonNegative(iva, "IVA", result); // NUEVO
+        CommonValidators.validateNonNegative(iva, "IVA", result);
         CommonValidators.validateNonNegative(propina, "Propina", result);
         CommonValidators.validateNonNegative(total, "Total", result);
         
@@ -84,7 +83,6 @@ public class VentaValidator {
         }
         
         // 6. Validar que el total sea correcto
-        // MODIFICADO: Añadir IVA al cálculo
         double totalCalculado = (subtotal - descuento) + iva + propina;
         if (Math.abs(totalCalculado - total) > 0.01) {
             result.addError("Total", 
@@ -92,34 +90,26 @@ public class VentaValidator {
                     totalCalculado, total));
         }
         
-        // 7. Validar método de pago
-        CommonValidators.validateNotEmpty(metodoPago, "Método de pago", result);
-        
-        // 8. Validar tipo de descuento
+        // 7. Validar tipo de descuento
         CommonValidators.validateNotEmpty(tipoDescuento, "Tipo de descuento", result);
         
-        // 9. Validar monto pagado (excepto para cuentas por cobrar)
-        
-        // --- INICIO DE LA CORRECCIÓN ---
-        // Se define una tolerancia de 0.01 (1 centavo) para errores de punto flotante.
-        double Epsilon = 0.01;
+        // 8. Validar monto pagado (excepto para cuentas por cobrar)
+        double Epsilon = 0.01; // Tolerancia para punto flotante
         
         if (!"Cuenta por Cobrar".equals(tipoDescuento)) {
-            // Se resta el Epsilon al total. Si el monto pagado es *aún* menor, es un error.
-            // Esto permite que 120.00 sea >= 120.00, pero también que 119.999 sea >= 120.00
-            if (montoPagado < (total - Epsilon)) { 
+            // Comparamos el total pagado (suma de todos los pagos) con el total de la factura
+            if (totalPagadoEnDolares < (total - Epsilon)) { 
                 result.addError("Monto pagado", 
-                    String.format("El monto pagado (%.2f) es insuficiente. Total: %.2f", 
-                        montoPagado, total));
+                    String.format("El monto total pagado (%.2f) es insuficiente. Total: %.2f", 
+                        totalPagadoEnDolares, total));
             }
-        // --- FIN DE LA CORRECCIÓN ---
         } else {
             // Si es cuenta por cobrar, agregar advertencia
             result.addWarning("Método de pago", 
                 "Esta venta quedará registrada como cuenta por cobrar");
         }
         
-        // 10. Validar propina si existe
+        // 9. Validar propina si existe
         if (propina > 0) {
             // Advertencia si la propina es muy alta (más del 30% del subtotal)
             if (propina > subtotal * 0.30) {
@@ -182,26 +172,14 @@ public class VentaValidator {
     }
     
     /**
-     * Valida el método de pago según el tipo.
+     * Valida el método de pago según el tipo (al momento de agregarlo).
      */
     public static ValidationResult validateMetodoPago(String metodoPago, String moneda, 
-                                                      String destinoPagoMovil) {
+                                                      String destinoPago) {
         ValidationResult result = new ValidationResult();
         
         CommonValidators.validateNotEmpty(metodoPago, "Método de pago", result);
         CommonValidators.validateNotEmpty(moneda, "Moneda", result);
-        
-        // Validar destino si es Pago Móvil
-        if ("Pago Movil".equals(metodoPago)) {
-            CommonValidators.validateNotEmpty(destinoPagoMovil, "Destino de Pago Móvil", result);
-            
-            if (CommonValidators.isNotEmpty(destinoPagoMovil)) {
-                if (!"Capelli".equals(destinoPagoMovil) && !"Rosa".equals(destinoPagoMovil)) {
-                    result.addError("Destino de Pago Móvil", 
-                        "El destino debe ser 'Capelli' o 'Rosa'");
-                }
-            }
-        }
         
         // Validar moneda
         if (CommonValidators.isNotEmpty(moneda)) {
@@ -209,27 +187,27 @@ public class VentaValidator {
                 result.addError("Moneda", "La moneda debe ser ' o 'Bs'");
             }
         }
-        
-        return result;
-    }
-    
-    /**
-     * Valida el cálculo de vuelto.
-     */
-    public static ValidationResult validateVuelto(double total, double montoPagado, 
-                                                  double vuelto) {
-        ValidationResult result = new ValidationResult();
-        
-        double vueltoCalculado = montoPagado - total;
-        
-        if (Math.abs(vueltoCalculado - vuelto) > 0.01) {
-            result.addError("Vuelto", 
-                String.format("El vuelto no es correcto (Esperado: %.2f, Actual: %.2f)", 
-                    vueltoCalculado, vuelto));
+
+        // Validar destino si es Pago Móvil en Bs
+        if ("Pago Movil".equals(metodoPago) && "Bs".equals(moneda)) {
+            CommonValidators.validateNotEmpty(destinoPago, "Destino de Pago Móvil", result);
+            
+            if (CommonValidators.isNotEmpty(destinoPago)) {
+                if (!"Capelli".equals(destinoPago) && !"Rosa".equals(destinoPago)) {
+                    result.addError("Destino de Pago Móvil", 
+                        "El destino debe ser 'Capelli' o 'Rosa'");
+                }
+            }
         }
-        
-        if (vuelto < 0) {
-            result.addError("Vuelto", "El monto pagado es insuficiente");
+
+        // Validar destino si es Transferencia en $
+        if ("Transferencia".equals(metodoPago) && "$".equals(moneda)) {
+            CommonValidators.validateNotEmpty(destinoPago, "Destino de Transferencia", result);
+            if (CommonValidators.isNotEmpty(destinoPago)) {
+                if (!"@hotmail".equals(destinoPago) && !"@Gmail".equals(destinoPago) && !"Ingrid".equals(destinoPago)) {
+                        result.addError("Destino de Transferencia", "Destino inválido");
+                }
+            }
         }
         
         return result;
@@ -280,7 +258,7 @@ public class VentaValidator {
         
         if ("Promoción".equals(tipoDescuento)) {
             // Validar que el descuento sea aproximadamente 20% del subtotal
-            double descuentoEsperado = subtotal * 0.20;
+            double descuentoEsperado = subtotal * 0.20; // Asumiendo 20%
             if (Math.abs(descuento - descuentoEsperado) > 0.01) {
                 result.addWarning("Descuento", 
                     String.format("El descuento de promoción debería ser %.2f (20%%)", 

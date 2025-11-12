@@ -1,5 +1,5 @@
 // Archivo: src/main/java/com/capelli/reports/FinancialReportWindow.java
-// (Corregido)
+// (MODIFICADO para ser compatible con pagos múltiples)
 
 package com.capelli.reports;
 
@@ -70,7 +70,7 @@ public class FinancialReportWindow extends JFrame {
         };
         reportTable = new JTable(tableModel);
         reportTable.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        reportTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        reportTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF); // Importante para muchas columnas
 
         mainPanel.add(controlsPanel, BorderLayout.NORTH);
         mainPanel.add(new JScrollPane(reportTable), BorderLayout.CENTER);
@@ -88,6 +88,9 @@ public class FinancialReportWindow extends JFrame {
         LocalDate startLocalDate = startDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         LocalDate endLocalDate = endDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
 
+        // ===== INICIO DE MODIFICACIÓN (SQL) =====
+        // La consulta ahora se une con 'sale_payments' (usando subconsultas con GROUP_CONCAT)
+        // y 'tips' para obtener una vista completa de la transacción por cada item de servicio.
         String sql = "SELECT "
                 + "    DATE(s.sale_date, 'localtime') AS Fecha, "
                 + "    s.correlative_number AS Factura, "
@@ -96,12 +99,33 @@ public class FinancialReportWindow extends JFrame {
                 + "    COALESCE(svc.name, 'N/A') AS Servicio, "
                 + "    COALESCE(svc.service_category, 'N/A') AS Categoria_Servicio, "
                 + "    si.price_at_sale AS Precio_Item_USD, "
+                + "    s.discount_type AS Tipo_Descuento, "
                 + "    s.discount_amount AS Descuento_Venta_USD, "
                 + "    s.vat_amount AS IVA_Venta_USD, "
+                + "    (SELECT COALESCE(SUM(tip.amount), 0.0) FROM tips tip WHERE tip.sale_id = s.sale_id) AS Propina_Venta_USD, "
                 + "    s.total AS Total_Venta_USD, "
-                + "    s.payment_method AS Metodo_Pago, "
-                + "    s.payment_destination AS Destino_Pago, "
-                + "    s.bcv_rate_at_sale AS Tasa_BCV "
+                + "    s.bcv_rate_at_sale AS Tasa_BCV_Venta, "
+                + "    ( "
+                + "        SELECT GROUP_CONCAT( "
+                + "            payment_method || ' (' || "
+                + "            printf('%.2f', amount_currency) || ' ' || currency || "
+                + "            CASE "
+                + "                WHEN currency = 'Bs' THEN ' / @' || printf('%.2f', bcv_rate_at_payment) "
+                + "                ELSE '' "
+                + "            END || ' = $' || printf('%.2f', amount_usd) || "
+                + "            COALESCE(' / Ref: ' || payment_reference, '') || "
+                + "            COALESCE(' / Dest: ' || payment_destination, '') || "
+                + "            ')', "
+                + "            ' | ' "
+                + "        ) "
+                + "        FROM sale_payments sp "
+                + "        WHERE sp.sale_id = s.sale_id "
+                + "    ) AS Pagos_Detallados, "
+                + "    ( "
+                + "        SELECT COALESCE(SUM(sp.amount_usd), 0.0) "
+                + "        FROM sale_payments sp "
+                + "        WHERE sp.sale_id = s.sale_id "
+                + "    ) AS Total_Pagado_USD "
                 + "FROM "
                 + "    sales s "
                 + "LEFT JOIN "
@@ -116,6 +140,8 @@ public class FinancialReportWindow extends JFrame {
                 + "    DATE(s.sale_date, 'localtime') BETWEEN ? AND ? "
                 + "ORDER BY "
                 + "    s.sale_date, s.correlative_number, Trabajadora";
+        // ===== FIN DE MODIFICACIÓN (SQL) =====
+
 
         try (Connection conn = Database.connect();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -125,23 +151,22 @@ public class FinancialReportWindow extends JFrame {
 
             ResultSet rs = pstmt.executeQuery();
             
-            // ===== INICIO DE LA CORRECCIÓN =====
             DefaultTableModel newModel = buildTableModel(rs);
             
-            // Reconstruir el vector de nombres de columna desde el newModel
             Vector<String> columnNames = new Vector<>();
             for (int i = 0; i < newModel.getColumnCount(); i++) {
                 columnNames.add(newModel.getColumnName(i));
             }
             
-            // Usar el método setDataVector que toma (Vector<Vector>, Vector<String>)
             tableModel.setDataVector(newModel.getDataVector(), columnNames);
-            // ===== FIN DE LA CORRECCIÓN =====
 
             // Ajustar ancho de columnas
-            for(int i=0; i < tableModel.getColumnCount(); i++) {
-                reportTable.getColumnModel().getColumn(i).setPreferredWidth(150);
-            }
+            reportTable.getColumnModel().getColumn(0).setPreferredWidth(100); // Fecha
+            reportTable.getColumnModel().getColumn(1).setPreferredWidth(60);  // Factura
+            reportTable.getColumnModel().getColumn(2).setPreferredWidth(180); // Cliente
+            reportTable.getColumnModel().getColumn(3).setPreferredWidth(180); // Trabajadora
+            reportTable.getColumnModel().getColumn(4).setPreferredWidth(180); // Servicio
+            reportTable.getColumnModel().getColumn(12).setPreferredWidth(400); // Pagos_Detallados
 
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error al generar el reporte: " + e.getMessage(), "Error de Base de Datos", JOptionPane.ERROR_MESSAGE);
@@ -197,6 +222,8 @@ public class FinancialReportWindow extends JFrame {
                     for (int j = 0; j < tableModel.getColumnCount(); j++) {
                         Object value = tableModel.getValueAt(i, j);
                         String cellValue = (value != null) ? value.toString() : "";
+                        // Reemplazar saltos de línea (de GROUP_CONCAT) por un caracter legible en CSV
+                        cellValue = cellValue.replace("\n", " | "); 
                         bw.write("\"" + cellValue.replace("\"", "\"\"") + "\"");
                         if (j < tableModel.getColumnCount() - 1) {
                             bw.write(",");

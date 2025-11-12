@@ -192,6 +192,7 @@ public class Database {
                 + "    price_cliente_producto REAL DEFAULT 0.0\n"
                 + ");";
 
+        // ===== MODIFICACIÓN: Tabla 'sales' ya no contiene campos de pago =====
         String sqlSales = "CREATE TABLE IF NOT EXISTS sales (\n"
                 + "    sale_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    client_id INTEGER,\n"
@@ -200,11 +201,20 @@ public class Database {
                 + "    discount_type TEXT,\n"
                 + "    discount_amount REAL,\n"
                 + "    total REAL NOT NULL,\n"
-                + "    payment_method TEXT,\n"
-                + "    currency TEXT,\n"
-                + "    payment_destination TEXT,\n"
-                + "    payment_reference TEXT,\n" // <-- MODIFICACIÓN
                 + "    FOREIGN KEY (client_id) REFERENCES clients (client_id)\n"
+                + ");";
+
+        // ===== NUEVA TABLA: 'sale_payments' para pagos múltiples =====
+        String sqlSalePayments = "CREATE TABLE IF NOT EXISTS sale_payments (\n"
+                + "    payment_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+                + "    sale_id INTEGER NOT NULL,\n"
+                + "    monto REAL NOT NULL,\n"
+                + "    moneda TEXT NOT NULL, \n" // '$' o 'Bs'
+                + "    metodo_pago TEXT NOT NULL,\n"
+                + "    destino_pago TEXT,\n"
+                + "    referencia_pago TEXT,\n"
+                + "    tasa_bcv_al_pago REAL DEFAULT 0.0,\n"
+                + "    FOREIGN KEY (sale_id) REFERENCES sales (sale_id) ON DELETE CASCADE\n"
                 + ");";
 
         String sqlSaleItems = "CREATE TABLE IF NOT EXISTS sale_items (\n"
@@ -231,7 +241,6 @@ public class Database {
                 + "    setting_value TEXT NOT NULL\n"
                 + ");";
         
-        // ===== NUEVA TABLA PARA REGLAS DE COMISIÓN =====
         String sqlCommissionRules = "CREATE TABLE IF NOT EXISTS trabajadora_commission_rules (\n"
                 + "    rule_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    trabajadora_id INTEGER NOT NULL,\n"
@@ -256,7 +265,10 @@ public class Database {
             LOGGER.info("Tabla 'services' verificada/creada");
 
             stmt.execute(sqlSales);
-            LOGGER.info("Tabla 'sales' verificada/creada");
+            LOGGER.info("Tabla 'sales' verificada/creada (actualizada sin campos de pago)");
+
+            stmt.execute(sqlSalePayments);
+            LOGGER.info("Tabla 'sale_payments' verificada/creada");
 
             stmt.execute(sqlSaleItems);
             LOGGER.info("Tabla 'sale_items' verificada/creada");
@@ -267,7 +279,6 @@ public class Database {
             stmt.execute(sqlSettings);
             LOGGER.info("Tabla 'app_settings' verificada/creada");
             
-            // ===== EJECUTAR CREACIÓN DE NUEVA TABLA =====
             stmt.execute(sqlCommissionRules);
             LOGGER.info("Tabla 'trabajadora_commission_rules' verificada/creada");
             
@@ -308,25 +319,10 @@ public class Database {
                 }
             }
             
-            // --- MODIFICACIÓN ---
-            try {
-                stmt.execute("ALTER TABLE sales ADD COLUMN payment_reference TEXT");
-                LOGGER.info("Columna 'payment_reference' agregada a la tabla 'sales'.");
-            } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'payment_reference' ya existe en 'sales'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para payment_reference", e);
-                }
-            }
-            // --- FIN MODIFICACIÓN ---
-            
-            // ===== NUEVA ALTERACIÓN PARA CATEGORÍA DE SERVICIO =====
             try {
                 stmt.execute("ALTER TABLE services ADD COLUMN service_category TEXT");
                 LOGGER.info("Columna 'service_category' agregada a la tabla 'services'.");
                 
-                // (Opcional) Asignar categorías por defecto a servicios existentes
                 stmt.execute("UPDATE services SET service_category = 'Peluqueria' WHERE name IN ('Secado', 'Corte Puntas', 'Corte Elaborado', 'Peinados')");
                 stmt.execute("UPDATE services SET service_category = 'Quimico' WHERE name IN ('Color (Tinte)', 'Mechas', 'Keratina', 'Aplicación de Tinte')");
                 stmt.execute("UPDATE services SET service_category = 'Manos/Pies' WHERE name IN ('Manicure Tradicional', 'Pedicure Tradicional')");

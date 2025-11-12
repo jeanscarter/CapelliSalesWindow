@@ -54,7 +54,7 @@ import net.miginfocom.swing.MigLayout;
 public class CapelliSalesWindow extends JFrame {
 
     private static final Logger LOGGER = Logger.getLogger(CapelliSalesWindow.class.getName());
-    private boolean ivaExcluido = false; // <-- MODIFICACIÓN
+    private boolean ivaExcluido = false; 
     private Map<String, Double> preciosServicios = new HashMap<>();
     private List<String> trabajadorasNombres = new ArrayList<>();
     private List<Trabajadora> trabajadorasList = new ArrayList<>();
@@ -79,8 +79,11 @@ public class CapelliSalesWindow extends JFrame {
     private JComboBox<String> descuentoComboBox;
     private JTextField propinaField;
     private JComboBox<String> propinaTrabajadoraComboBox;
-    private JTextField montoPagadoField;
-    private JLabel vueltoLabel;
+    
+    // CAMPOS DE PAGO ANTERIORES (ELIMINADOS)
+    // private JTextField montoPagadoField;
+    // private JLabel vueltoLabel;
+    
     private JRadioButton monedaBs, monedaDolar;
     private JComboBox<String> pagoComboBox;
     
@@ -95,12 +98,10 @@ public class CapelliSalesWindow extends JFrame {
     private ButtonGroup pagoMovilDestinoGroup;
     private JPanel pagoMovilPanel;
     
-    // --- MODIFICACIÓN: AÑADIR ESTO ---
     private JPanel transferenciaUsdPanel;
     private JRadioButton transferenciaHotmailRadio, transferenciaGmailRadio, transferenciaIngridRadio;
     private ButtonGroup transferenciaUsdDestinoGroup;
     private JTextField referenciaUsdField;
-    // --- FIN MODIFICACIÓN ---
     
     private JSpinner dateSpinner;
     private JTextField manualBcvField;
@@ -114,6 +115,22 @@ public class CapelliSalesWindow extends JFrame {
 
     private JCheckBox clienteProductoCheck;
     private Map<String, Service> serviciosMap = new HashMap<>(); 
+
+    // --- NUEVAS VARIABLES PARA PAGOS MÚLTIPLES ---
+    private DefaultTableModel pagosTableModel;
+    private JTable pagosTable;
+    private final List<Pago> pagosAgregados = new ArrayList<>();
+    private JLabel montoRestanteLabel;
+    private JTextField montoPagoField; // Este será el campo para "Agregar Pago"
+    private final DecimalFormat currencyFormat = new DecimalFormat("#,##0.00");
+
+    /**
+     * Record interno para almacenar temporalmente los pagos agregados.
+     * El 'monto' SIEMPRE se almacena en USD.
+     */
+    private record Pago(double monto, String moneda, String metodo, String destino, String referencia, double tasaBcv) {}
+    // --- FIN DE NUEVAS VARIABLES ---
+
 
     public CapelliSalesWindow() {
         super(AppConfig.getAppTitle());
@@ -195,23 +212,24 @@ public class CapelliSalesWindow extends JFrame {
             actualizarTotales();
         }));
 
-        montoPagadoField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
-            ValidationHelper.resetFieldBorder(montoPagadoField);
+        // Este listener ahora es para el campo "Agregar Pago"
+        montoPagoField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            ValidationHelper.resetFieldBorder(montoPagoField);
             try {
-                double monto = Double.parseDouble(montoPagadoField.getText().replace(",", "."));
+                double monto = Double.parseDouble(montoPagoField.getText().replace(",", "."));
                 if (monto < 0) {
-                    ValidationHelper.markFieldAsError(montoPagadoField);
-                    ValidationHelper.addErrorTooltip(montoPagadoField, "El monto no puede ser negativo");
+                    ValidationHelper.markFieldAsError(montoPagoField);
+                    ValidationHelper.addErrorTooltip(montoPagoField, "El monto no puede ser negativo");
                 } else {
-                    ValidationHelper.removeErrorTooltip(montoPagadoField);
+                    ValidationHelper.removeErrorTooltip(montoPagoField);
                 }
             } catch (NumberFormatException e) {
-                if (!montoPagadoField.getText().isEmpty()) {
-                    ValidationHelper.markFieldAsError(montoPagadoField);
-                    ValidationHelper.addErrorTooltip(montoPagadoField, "Debe ser un número válido");
+                if (!montoPagoField.getText().isEmpty()) {
+                    ValidationHelper.markFieldAsError(montoPagoField);
+                    ValidationHelper.addErrorTooltip(montoPagoField, "Debe ser un número válido");
                 }
             }
-            actualizarTotales();
+            // No llamamos a actualizarTotales() aquí, solo al agregar el pago.
         }));
 
         cedulaNumeroField.getDocument().addDocumentListener(new SimpleDocumentListener(this::validateCedulaInput));
@@ -238,7 +256,6 @@ public class CapelliSalesWindow extends JFrame {
             }
         });
 
-        // --- MODIFICACIÓN: AÑADIR ESTO ---
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_I, KeyEvent.CTRL_DOWN_MASK), "toggleIVA");
         am.put("toggleIVA", new AbstractAction() {
             @Override
@@ -246,7 +263,6 @@ public class CapelliSalesWindow extends JFrame {
                 toggleIVA();
             }
         });
-        // --- FIN MODIFICACIÓN ---
     }
 
     private void promptForCorrelativeChange() {
@@ -435,7 +451,6 @@ public class CapelliSalesWindow extends JFrame {
         buscarClienteBtn.addActionListener(e -> buscarClienteEnDB());
 
         // --- PANEL DE BOTONES DE GESTIÓN ---
-        // (Reorganizado para mejor agrupación)
         JPanel managementPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 0", "[grow,fill][grow,fill]"));
         managementPanel.setBorder(new TitledBorder("Módulos de Gestión"));
 
@@ -473,26 +488,22 @@ public class CapelliSalesWindow extends JFrame {
         });
         managementPanel.add(gestionarTrabajadorasBtn, "sg btn");
 
-        // --- NUEVO: Botón Gestionar Comisiones ---
         JButton gestionarComisionesBtn = new JButton("Gestionar Comisiones");
         gestionarComisionesBtn.addActionListener(e -> new CommissionManagementWindow().setVisible(true));
-        managementPanel.add(gestionarComisionesBtn, "sg btn, wrap"); // wrap para saltar línea
+        managementPanel.add(gestionarComisionesBtn, "sg btn, wrap"); 
 
-        // --- NUEVO: Botón Calcular Nómina ---
         JButton calcularNominaBtn = new JButton("Calcular Nómina");
         calcularNominaBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
         calcularNominaBtn.addActionListener(e -> new PayrollWindow().setVisible(true));
         managementPanel.add(calcularNominaBtn, "sg btn");
 
-        // --- NUEVO: Botón Reporte Financiero ---
         JButton reporteFinancieroBtn = new JButton("Reporte Financiero");
         reporteFinancieroBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
         reporteFinancieroBtn.addActionListener(e -> new FinancialReportWindow().setVisible(true));
         managementPanel.add(reporteFinancieroBtn, "sg btn");
 
-        // Añadir el panel de gestión al panel de cliente
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 2; // Ajustar gridy según tu layout
+        gbcCliente.gridy = 2; 
         gbcCliente.gridwidth = 3;
         clientePanel.add(managementPanel, gbcCliente);
         // --- FIN PANEL DE BOTONES ---
@@ -500,14 +511,14 @@ public class CapelliSalesWindow extends JFrame {
 
         nombreClienteLabel = new JLabel("Nombre: No cargado");
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 3; // Ajustar gridy
+        gbcCliente.gridy = 3; 
         gbcCliente.gridwidth = 2;
         clientePanel.add(nombreClienteLabel, gbcCliente);
 
         JButton verReportesBtn = new JButton("Ver Reportes de Ventas");
         verReportesBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 4; // Ajustar gridy
+        gbcCliente.gridy = 4; 
         gbcCliente.gridwidth = 2;
         gbcCliente.insets = new Insets(15, 5, 5, 5);
         clientePanel.add(verReportesBtn, gbcCliente);
@@ -519,21 +530,21 @@ public class CapelliSalesWindow extends JFrame {
         correlativeLabel = new JLabel("Factura N°: " + currentCorrelative);
         correlativeLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         gbcCliente.gridx = 2;
-        gbcCliente.gridy = 4; // Ajustar gridy
+        gbcCliente.gridy = 4; 
         gbcCliente.gridwidth = 1;
         gbcCliente.anchor = GridBagConstraints.EAST;
         clientePanel.add(correlativeLabel, gbcCliente);
 
         tasaLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 5; // Ajustar gridy
+        gbcCliente.gridy = 5; 
         gbcCliente.gridwidth = 3; 
         gbcCliente.anchor = GridBagConstraints.CENTER;
         clientePanel.add(tasaLabel, gbcCliente);
 
         historicalSaleCheck = new JCheckBox("Registrar Venta Histórica");
         gbcCliente.gridx = 0;
-        gbcCliente.gridy = 6; // Ajustar gridy
+        gbcCliente.gridy = 6; 
         gbcCliente.gridwidth = 3;
         clientePanel.add(historicalSaleCheck, gbcCliente);
         
@@ -920,32 +931,23 @@ public class CapelliSalesWindow extends JFrame {
         return panel;
     }
 
+    /**
+     * Reconstruye el panel de pago para soportar múltiples pagos.
+     */
     private JPanel crearPanelDerechoInferior() {
+        // El panel principal sigue siendo GridBagLayout
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBorder(new TitledBorder("Total y Pago"));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
 
-
-        JPanel totalesPanel = new JPanel(new GridLayout(5, 2)); 
-        totalesPanel.setBorder(new TitledBorder("Resumen"));
-        
-        subtotalLabel = new JLabel("Subtotal ($): 0.00");
-        descuentoLabel = new JLabel("Descuento ($): 0.00");
-        ivaLabel = new JLabel("IVA ($): 0.00"); 
-        totalLabel = new JLabel("Total ($): 0.00");
-        propinaLabelGUI = new JLabel("Propina ($): 0.00");
-        
-        totalesPanel.add(subtotalLabel);
-        totalesPanel.add(descuentoLabel);
-        totalesPanel.add(ivaLabel); 
-        totalesPanel.add(propinaLabelGUI);
-        totalesPanel.add(totalLabel);
-
+        // --- 1. Panel de Descuento y Propina (sin cambios) ---
         JPanel descuentoPanel = new JPanel(new BorderLayout());
         descuentoPanel.setBorder(new TitledBorder("Descuento"));
         descuentoComboBox = new JComboBox<>(tiposDescuento.toArray(new String[0]));
+        descuentoComboBox.addActionListener(e -> actualizarTotales());
         descuentoPanel.add(descuentoComboBox, BorderLayout.CENTER);
 
         JPanel propinaPanel = new JPanel(new GridBagLayout());
@@ -953,61 +955,81 @@ public class CapelliSalesWindow extends JFrame {
         GridBagConstraints gbcPropina = new GridBagConstraints();
         gbcPropina.insets = new Insets(5, 5, 5, 5);
         gbcPropina.fill = GridBagConstraints.HORIZONTAL;
-        gbcPropina.gridx = 0;
-        gbcPropina.gridy = 0;
+        gbcPropina.gridx = 0; gbcPropina.gridy = 0;
         propinaPanel.add(new JLabel("Monto ($):"), gbcPropina);
         propinaField = new JTextField("0.00");
-        gbcPropina.gridx = 1;
-        gbcPropina.gridy = 0;
-        gbcPropina.weightx = 1.0;
+        gbcPropina.gridx = 1; gbcPropina.gridy = 0; gbcPropina.weightx = 1.0;
         propinaPanel.add(propinaField, gbcPropina);
-        gbcPropina.gridx = 0;
-        gbcPropina.gridy = 1;
+        gbcPropina.gridx = 0; gbcPropina.gridy = 1;
         propinaPanel.add(new JLabel("Para:"), gbcPropina);
         List<String> propinaDestinatarios = new ArrayList<>(trabajadorasNombres);
         propinaDestinatarios.add("Salón");
         propinaTrabajadoraComboBox = new JComboBox<>(propinaDestinatarios.toArray(new String[0]));
-        gbcPropina.gridx = 1;
-        gbcPropina.gridy = 1;
+        gbcPropina.gridx = 1; gbcPropina.gridy = 1;
         propinaPanel.add(propinaTrabajadoraComboBox, gbcPropina);
 
-        JPanel pagoPanel = new JPanel(new GridBagLayout());
-        pagoPanel.setBorder(new TitledBorder("Opciones de Pago"));
-        GridBagConstraints gbcPago = new GridBagConstraints();
-        gbcPago.insets = new Insets(5, 5, 5, 5);
-        gbcPago.fill = GridBagConstraints.HORIZONTAL;
-        gbcPago.gridx = 0;
-        gbcPago.gridy = 0;
-        pagoPanel.add(new JLabel("Moneda:"), gbcPago);
-        
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(descuentoPanel, gbc);
+        gbc.gridx = 1; gbc.gridy = 0;
+        panel.add(propinaPanel, gbc);
+
+
+        // --- 2. Panel de Resumen (Totales) ---
+        JPanel totalesPanel = new JPanel(new GridLayout(6, 1)); // 6 filas
+        totalesPanel.setBorder(new TitledBorder("Resumen"));
+        subtotalLabel = new JLabel("Subtotal ($): 0.00");
+        descuentoLabel = new JLabel("Descuento ($): 0.00");
+        ivaLabel = new JLabel("IVA ($): 0.00");
+        propinaLabelGUI = new JLabel("Propina ($): 0.00");
+        totalLabel = new JLabel("Total ($): 0.00");
+        totalLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        montoRestanteLabel = new JLabel("Restante por Pagar ($): 0.00");
+        montoRestanteLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        montoRestanteLabel.setForeground(Color.RED);
+
+        totalesPanel.add(subtotalLabel);
+        totalesPanel.add(descuentoLabel);
+        totalesPanel.add(ivaLabel);
+        totalesPanel.add(propinaLabelGUI);
+        totalesPanel.add(totalLabel);
+        totalesPanel.add(montoRestanteLabel);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
+        panel.add(totalesPanel, gbc);
+
+        // --- 3. Panel de AGREGAR PAGO (NUEVO) ---
+        JPanel pagoPanel = new JPanel(new MigLayout("wrap 4, fillx", "[right]10[grow,fill]20[right]10[grow,fill]"));
+        pagoPanel.setBorder(new TitledBorder("Agregar Pago"));
+
+        // Moneda
+        pagoPanel.add(new JLabel("Moneda:"));
         monedaBs = new JRadioButton("Bs", true);
         monedaDolar = new JRadioButton("$");
-        
         ButtonGroup monedaGroup = new ButtonGroup();
         monedaGroup.add(monedaBs);
         monedaGroup.add(monedaDolar);
         JPanel monedaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         monedaPanel.add(monedaDolar);
         monedaPanel.add(monedaBs);
-        gbcPago.gridx = 1;
-        gbcPago.gridy = 0;
-        pagoPanel.add(monedaPanel, gbcPago);
+        pagoPanel.add(monedaPanel);
 
-        pagoPanel.setBorder(new TitledBorder("Opciones de Pago"));
-        gbcPago.insets = new Insets(5, 5, 5, 5);
-        gbcPago.fill = GridBagConstraints.HORIZONTAL;
+        // Monto
+        pagoPanel.add(new JLabel("Monto:"));
+        montoPagoField = new JTextField("0.00");
+        ((javax.swing.text.AbstractDocument) montoPagoField.getDocument()).setDocumentFilter(new NumericFilter());
+        pagoPanel.add(montoPagoField, "growx, wrap");
 
-        gbcPago.gridx = 0;
-        gbcPago.gridy = 1;
-        pagoPanel.add(new JLabel("Método:"), gbcPago);
-        
+        // Método
+        pagoPanel.add(new JLabel("Método:"));
         pagoComboBox = new JComboBox<>(metodosPagoBs.toArray(new String[0]));
-        
-        gbcPago.gridx = 1;
-        gbcPago.gridy = 1;
-        gbcPago.weightx = 1.0;
-        pagoPanel.add(pagoComboBox, gbcPago);
+        pagoPanel.add(pagoComboBox, "growx");
 
+        // Botón Agregar
+        JButton agregarPagoBtn = new JButton("Agregar Pago");
+        agregarPagoBtn.addActionListener(e -> agregarPago());
+        pagoPanel.add(agregarPagoBtn, "span 2, growx, wrap");
+
+        // Paneles dinámicos (Pago Móvil y Transferencia $)
         pagoMovilPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         pagoMovilCapelliRadio = new JRadioButton("Capelli", true);
         pagoMovilRosaRadio = new JRadioButton("Rosa");
@@ -1017,9 +1039,9 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.add(new JLabel("Destino:"));
         pagoMovilPanel.add(pagoMovilCapelliRadio);
         pagoMovilPanel.add(pagoMovilRosaRadio);
-        pagoMovilPanel.setVisible(true); 
+        pagoMovilPanel.setVisible(true);
+        pagoPanel.add(pagoMovilPanel, "span 4, growx");
 
-        // --- MODIFICACIÓN: AÑADIR ESTE BLOQUE ---
         transferenciaUsdPanel = new JPanel(new MigLayout("wrap 2, insets 0", "[right]10[grow,fill]"));
         transferenciaHotmailRadio = new JRadioButton("@hotmail", true);
         transferenciaGmailRadio = new JRadioButton("@Gmail");
@@ -1028,92 +1050,57 @@ public class CapelliSalesWindow extends JFrame {
         transferenciaUsdDestinoGroup.add(transferenciaHotmailRadio);
         transferenciaUsdDestinoGroup.add(transferenciaGmailRadio);
         transferenciaUsdDestinoGroup.add(transferenciaIngridRadio);
-        
         JPanel radioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         radioPanel.add(transferenciaHotmailRadio);
         radioPanel.add(transferenciaGmailRadio);
         radioPanel.add(transferenciaIngridRadio);
-
         transferenciaUsdPanel.add(new JLabel("Destino:"));
         transferenciaUsdPanel.add(radioPanel, "growx");
-        
         referenciaUsdField = new JTextField();
         transferenciaUsdPanel.add(new JLabel("Ref:"));
         transferenciaUsdPanel.add(referenciaUsdField, "growx");
-        
-        transferenciaUsdPanel.setVisible(false); // Oculto por defecto
-        // --- FIN MODIFICACIÓN ---
+        transferenciaUsdPanel.setVisible(false);
+        pagoPanel.add(transferenciaUsdPanel, "span 4, growx");
 
-        gbcPago.gridx = 1;
-        gbcPago.gridy = 2;
-        pagoPanel.add(pagoMovilPanel, gbcPago);
-        pagoPanel.add(transferenciaUsdPanel, gbcPago); // <-- MODIFICACIÓN
-
-        gbcPago.gridx = 0;
-        gbcPago.gridy = 3;
-        pagoPanel.add(new JLabel("Monto Pagado:"), gbcPago);
-        montoPagadoField = new JTextField("0.00");
-        gbcPago.gridx = 1;
-        gbcPago.gridy = 3;
-        gbcPago.weightx = 1.0;
-        pagoPanel.add(montoPagadoField, gbcPago);
-
-        gbcPago.gridx = 0;
-        gbcPago.gridy = 4;
-        pagoPanel.add(new JLabel("Vuelto:"), gbcPago);
-        vueltoLabel = new JLabel("0.00");
-        gbcPago.gridx = 1;
-        gbcPago.gridy = 4;
-        gbcPago.weightx = 1.0;
-        pagoPanel.add(vueltoLabel, gbcPago);
-
-        // --- MODIFICACIÓN: Listeners ---
+        // Listeners para el panel de pago
         ActionListener updateListener = e -> {
             actualizarMetodosPago();
-            actualizarTotales();
-            actualizarPanelesPago(); // <-- AÑADIDO
+            actualizarPanelesPago();
         };
-        descuentoComboBox.addActionListener(e -> actualizarTotales()); 
         monedaBs.addActionListener(updateListener);
         monedaDolar.addActionListener(updateListener);
-
-        // REEMPLAZAR ESTO:
-        /*
-        pagoComboBox.addActionListener(e -> {
-            String selectedMethod = (String) pagoComboBox.getSelectedItem();
-            pagoMovilPanel.setVisible("Pago Movil".equals(selectedMethod));
-        });
-        */
-        
-        // POR ESTO:
         pagoComboBox.addActionListener(e -> actualizarPanelesPago());
-        // --- FIN MODIFICACIÓN ---
 
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
+        panel.add(pagoPanel, gbc);
+
+
+        // --- 4. Panel de TABLA DE PAGOS (NUEVO) ---
+        pagosTableModel = new DefaultTableModel(new String[]{"Monto", "Moneda", "Método"}, 0) {
+             @Override
+             public boolean isCellEditable(int row, int column) { return false; }
+        };
+        pagosTable = new JTable(pagosTableModel);
+        JScrollPane scrollPagos = new JScrollPane(pagosTable);
+        scrollPagos.setPreferredSize(new Dimension(400, 100)); // Altura preferida
+        scrollPagos.setBorder(new TitledBorder("Pagos Registrados"));
+
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weighty = 0.5; gbc.fill = GridBagConstraints.BOTH;
+        panel.add(scrollPagos, gbc);
+
+        // --- 5. Botón de Facturar ---
         JButton facturarBtn = new JButton("Generar Factura");
         facturarBtn.setFont(new Font("Arial", Font.BOLD, 16));
         facturarBtn.addActionListener(e -> generarFactura());
-
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        panel.add(descuentoPanel, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        panel.add(propinaPanel, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        panel.add(totalesPanel, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        panel.add(pagoPanel, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 4;
+        
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2; gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.CENTER;
         panel.add(facturarBtn, gbc);
 
         return panel;
     }
 
-    // --- MODIFICACIÓN: Listener de pago ---
     private void actualizarMetodosPago() {
         pagoComboBox.removeAllItems();
         if (monedaBs.isSelected()) {
@@ -1121,19 +1108,93 @@ public class CapelliSalesWindow extends JFrame {
         } else {
             metodosPagoUsd.forEach(pagoComboBox::addItem);
         }
-        // Se elimina la lógica de visibilidad de aquí
     }
-    // --- FIN MODIFICACIÓN ---
+
+    /**
+     * Agrega un pago a la lista temporal y a la tabla de pagos.
+     */
+    private void agregarPago() {
+        double monto;
+        try {
+            monto = Double.parseDouble(montoPagoField.getText().replace(",", "."));
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "El monto ingresado es inválido.", "Error de Monto", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (monto <= 0) {
+            JOptionPane.showMessageDialog(this, "El monto debe ser positivo.", "Error de Monto", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String moneda = monedaDolar.isSelected() ? "$" : "Bs";
+        String metodo = (String) pagoComboBox.getSelectedItem();
+        if (metodo == null) {
+            JOptionPane.showMessageDialog(this, "Debe seleccionar un método de pago.", "Error de Método", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String destino = null;
+        String referencia = null;
+        double tasa = this.tasaBcv; // Usar la tasa actual de la ventana
+
+        // Validar destino/referencia
+        if (moneda.equals("Bs") && "Pago Movil".equals(metodo)) {
+            destino = pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli";
+        } else if (moneda.equals("$") && "Transferencia".equals(metodo)) {
+            if (transferenciaHotmailRadio.isSelected()) destino = "@hotmail";
+            else if (transferenciaGmailRadio.isSelected()) destino = "@Gmail";
+            else if (transferenciaIngridRadio.isSelected()) destino = "Ingrid";
+            
+            referencia = referenciaUsdField.getText().trim();
+            if (referencia.isEmpty()) {
+                 JOptionPane.showMessageDialog(this, "Debe ingresar la referencia para la transferencia en $.", "Error de Referencia", JOptionPane.ERROR_MESSAGE);
+                 return;
+            }
+        }
+        
+        // Convertir monto a $ si está en Bs para almacenamiento interno
+        double montoEnDolares = monto;
+        String montoDisplay = "$ " + currencyFormat.format(monto);
+
+        if (moneda.equals("Bs")) {
+            if (tasa <= 0) {
+                 JOptionPane.showMessageDialog(this, "No se puede agregar pago en Bs sin una tasa BCV válida.", "Error de Tasa", JOptionPane.ERROR_MESSAGE);
+                 return;
+            }
+            montoEnDolares = monto / tasa;
+            montoDisplay = "Bs " + currencyFormat.format(monto);
+        }
+
+        Pago nuevoPago = new Pago(montoEnDolares, moneda, metodo, destino, referencia, tasa);
+        pagosAgregados.add(nuevoPago);
+        
+        pagosTableModel.addRow(new Object[]{
+            montoDisplay,
+            moneda,
+            metodo + (destino != null ? " (" + destino + ")" : "")
+        });
+
+        LOGGER.info("Pago agregado: " + montoDisplay + " " + metodo);
+        
+        // Limpiar campos de pago
+        montoPagoField.setText("0.00");
+        referenciaUsdField.setText("");
+        
+        actualizarTotales();
+    }
 
 
+    /**
+     * Actualiza todos los labels de totales basándose en los servicios y pagos agregados.
+     */
     private void actualizarTotales() {
         double subtotal = serviciosAgregados.stream().mapToDouble(VentaServicio::getPrecio).sum();
         
         double propina = 0.0;
         try {
             propina = Double.parseDouble(propinaField.getText().replace(",", "."));
-        } catch (NumberFormatException ignored) {
-        }
+        } catch (NumberFormatException ignored) {}
 
         double descuento = 0.0;
         String tipoDesc = Objects.requireNonNull(descuentoComboBox.getSelectedItem()).toString();
@@ -1144,36 +1205,38 @@ public class CapelliSalesWindow extends JFrame {
         }
         
         double subtotalConDescuento = subtotal - descuento;
-        // --- MODIFICACIÓN: Cálculo de IVA ---
         double iva = ivaExcluido ? 0.0 : subtotalConDescuento * AppConfig.getVatPercentage();
-        // --- FIN MODIFICACIÓN ---
-        double total = subtotalConDescuento + iva + propina;
+        double total = subtotalConDescuento + iva + propina; // Total en $
 
-        DecimalFormat df = new DecimalFormat("#,##0.00");
-        double montoPagado = 0.0;
-        try {
-            montoPagado = Double.parseDouble(montoPagadoField.getText().replace(",", "."));
-        } catch (NumberFormatException ignored) {
-        }
+        // CALCULAR TOTAL PAGADO (NUEVO)
+        double totalPagadoEnDolares = pagosAgregados.stream()
+            .mapToDouble(Pago::monto) // El 'monto' en el record ya está en $
+            .sum();
+            
+        double restantePorPagar = total - totalPagadoEnDolares;
         
-        double tasa = tasaBcv; 
+        // Actualizar etiquetas
+        double tasa = this.tasaBcv; 
 
-        if (monedaBs.isSelected()) {
-            subtotalLabel.setText("Subtotal (Bs): " + df.format(subtotal * tasa));
-            descuentoLabel.setText("Descuento (Bs): " + df.format(descuento * tasa));
-            ivaLabel.setText("IVA (Bs): " + df.format(iva * tasa));
-            propinaLabelGUI.setText("Propina (Bs): " + df.format(propina * tasa));
-            totalLabel.setText("Total (Bs): " + df.format(total * tasa));
-            vueltoLabel.setText(df.format(montoPagado - (total * tasa)));
+        // Mostrar totales en $ (más simple)
+        subtotalLabel.setText("Subtotal ($): " + currencyFormat.format(subtotal));
+        descuentoLabel.setText("Descuento ($): " + currencyFormat.format(descuento));
+        ivaLabel.setText("IVA ($): " + currencyFormat.format(iva));
+        propinaLabelGUI.setText("Propina ($): " + currencyFormat.format(propina));
+        totalLabel.setText("Total ($): " + currencyFormat.format(total));
+        
+        // Mostrar restante en $ y Bs
+        montoRestanteLabel.setText("Restante ($): " + currencyFormat.format(restantePorPagar) + 
+                                  "  (Bs " + currencyFormat.format(restantePorPagar * tasa) + ")");
+        
+        if (restantePorPagar <= 0.01) { // Pequeña tolerancia
+            montoRestanteLabel.setForeground(new Color(0, 150, 0)); // Verde
+            montoRestanteLabel.setText("Total Cubierto. Vuelto ($): " + currencyFormat.format(restantePorPagar * -1));
         } else {
-            subtotalLabel.setText("Subtotal ($): " + df.format(subtotal));
-            descuentoLabel.setText("Descuento ($): " + df.format(descuento));
-            ivaLabel.setText("IVA ($): " + df.format(iva));
-            propinaLabelGUI.setText("Propina ($): " + df.format(propina));
-            totalLabel.setText("Total ($): " + df.format(total));
-            vueltoLabel.setText(df.format(montoPagado - total));
+            montoRestanteLabel.setForeground(Color.RED);
         }
     }
+
 
     private void generarFactura() {
         LOGGER.info("Iniciando validación de venta...");
@@ -1199,30 +1262,15 @@ public class CapelliSalesWindow extends JFrame {
         double descuento = tipoDesc.equals("Promoción") ? subtotal * AppConfig.getPromoDiscountPercentage() : 0.0;
 
         double subtotalConDescuento = subtotal - descuento;
-        // --- MODIFICACIÓN: Cálculo de IVA ---
         double iva = ivaExcluido ? 0.0 : subtotalConDescuento * AppConfig.getVatPercentage();
-        // --- FIN MODIFICACIÓN ---
-        double total = subtotalConDescuento + iva + propina;
+        double totalEnDolares = subtotalConDescuento + iva + propina;
 
-        double montoPagado = 0.0;
-        try {
-            montoPagado = Double.parseDouble(montoPagadoField.getText().replace(",", "."));
-        } catch (NumberFormatException e) {
-        }
+        // NUEVO: Calcular total pagado
+        double totalPagadoEnDolares = pagosAgregados.stream()
+            .mapToDouble(Pago::monto) // El 'monto' en el record ya está en $
+            .sum();
 
-        String metodoPago = pagoComboBox.getSelectedItem() != null
-                ? pagoComboBox.getSelectedItem().toString()
-                : "";
-
-        String moneda = monedaDolar.isSelected() ? "$" : "Bs";
-
-        double totalEnDolares = total; 
-        double montoPagadoEnDolares = montoPagado; 
-
-        if (moneda.equals("Bs")) {
-            montoPagadoEnDolares = montoPagado / tasaBcv;
-        }
-
+        // VALIDACIÓN MODIFICADA
         ValidationResult result = VentaValidator.validateVenta(
                 serviciosParaValidar,
                 subtotal,
@@ -1230,40 +1278,16 @@ public class CapelliSalesWindow extends JFrame {
                 iva, 
                 propina,
                 totalEnDolares, 
-                montoPagadoEnDolares, 
-                metodoPago,
+                totalPagadoEnDolares, // Se pasa la suma de pagos
                 tipoDesc
         );
-
-        // --- MODIFICACIÓN: Lógica de Destino/Referencia ---
-        String destinoPago = null;
-        String referenciaPago = null;
-
-        if ("Pago Movil".equals(metodoPago) && monedaBs.isSelected()) {
-            destinoPago = pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli";
-        } else if ("Transferencia".equals(metodoPago) && monedaDolar.isSelected()) {
-            if (transferenciaHotmailRadio.isSelected()) {
-                destinoPago = "@hotmail";
-            } else if (transferenciaGmailRadio.isSelected()) {
-                destinoPago = "@Gmail";
-            } else if (transferenciaIngridRadio.isSelected()) {
-                destinoPago = "Ingrid";
-            }
-            referenciaPago = referenciaUsdField.getText().trim();
+        
+        // Validar que haya al menos un pago (si no es cuenta por cobrar)
+        if (pagosAgregados.isEmpty() && !"Cuenta por Cobrar".equals(tipoDesc)) {
+            result.addError("Pagos", "Debe agregar al menos un método de pago.");
         }
-        // --- FIN MODIFICACIÓN ---
-
-        ValidationResult pagoResult = VentaValidator.validateMetodoPago(
-                metodoPago, moneda, destinoPago // Modificado
-        );
-        result.merge(pagoResult);
-
-        // --- MODIFICACIÓN: Validar Referencia ---
-        if ("Transferencia".equals(metodoPago) && monedaDolar.isSelected() && (referenciaPago == null || referenciaPago.isEmpty())) {
-            result.addError("Referencia", "Debe ingresar la referencia de la transferencia en $");
-        }
-        // --- FIN MODIFICACIÓN ---
-
+        
+        // Validar propina
         if (propina > 0) {
             String destinatarioPropina = propinaTrabajadoraComboBox.getSelectedItem() != null
                     ? propinaTrabajadoraComboBox.getSelectedItem().toString()
@@ -1274,11 +1298,13 @@ public class CapelliSalesWindow extends JFrame {
             result.merge(propinaResult);
         }
 
+        // Validar descuento
         ValidationResult descuentoResult = VentaValidator.validateDescuento(
                 tipoDesc, descuento, subtotal
         );
         result.merge(descuentoResult);
 
+        // Validar duplicados
         ValidationResult duplicadosResult = VentaValidator.checkDuplicateServices(
                 serviciosParaValidar
         );
@@ -1305,12 +1331,10 @@ public class CapelliSalesWindow extends JFrame {
                 new java.util.Date();
             java.sql.Timestamp saleDateSql = new java.sql.Timestamp(saleDateUtil.getTime());
 
-            // --- MODIFICACIÓN: SQL INSERT ---
+            // 1. GUARDAR LA VENTA (SIN DATOS DE PAGO)
             String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
-                    + "discount_amount, vat_amount, total, payment_method, currency, "
-                    + "payment_destination, bcv_rate_at_sale, correlative_number, payment_reference) " 
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            // --- FIN MODIFICACIÓN ---
+                    + "discount_amount, vat_amount, total, bcv_rate_at_sale, correlative_number) " 
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
                 
@@ -1325,25 +1349,9 @@ public class CapelliSalesWindow extends JFrame {
                 pstmt.setDouble(5, descuento); 
                 pstmt.setDouble(6, iva); 
                 pstmt.setDouble(7, totalEnDolares); 
-                pstmt.setString(8, metodoPago); 
-                pstmt.setString(9, moneda); 
+                pstmt.setDouble(8, tasaBcv); // Tasa general de la venta
+                pstmt.setString(9, String.valueOf(correlativeToSave));
                 
-                // --- MODIFICACIÓN: Guardar Destino/Referencia ---
-                if (destinoPago != null) {
-                    pstmt.setString(10, destinoPago); 
-                } else {
-                    pstmt.setNull(10, java.sql.Types.VARCHAR); 
-                }
-                pstmt.setDouble(11, tasaBcv); 
-                pstmt.setString(12, String.valueOf(correlativeToSave));
-                
-                if (referenciaPago != null) {
-                    pstmt.setString(13, referenciaPago);
-                } else {
-                    pstmt.setNull(13, java.sql.Types.VARCHAR);
-                }
-                // --- FIN MODIFICACIÓN ---
-
                 pstmt.executeUpdate();
             }
 
@@ -1357,6 +1365,7 @@ public class CapelliSalesWindow extends JFrame {
                 }
             }
 
+            // 2. GUARDAR LOS ITEMS DE LA VENTA
             String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale) "
                     + "VALUES (?, ?, ?, ?)";
 
@@ -1375,6 +1384,34 @@ public class CapelliSalesWindow extends JFrame {
                 LOGGER.info("Items de venta insertados: " + batchResults.length);
             }
 
+            // 3. (NUEVO) GUARDAR LOS PAGOS
+            String sqlPayments = "INSERT INTO sale_payments (sale_id, monto, moneda, metodo_pago, "
+                    + "destino_pago, referencia_pago, tasa_bcv_al_pago) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlPayments)) {
+                for (Pago p : pagosAgregados) {
+                    pstmt.setLong(1, saleId);
+                    
+                    // Guardamos el monto en la moneda que se pagó
+                    if(p.moneda().equals("Bs")) {
+                        pstmt.setDouble(2, p.monto() * p.tasaBcv()); // Convertir de nuevo a Bs para guardar
+                    } else {
+                        pstmt.setDouble(2, p.monto()); // Guardar en $
+                    }
+                    
+                    pstmt.setString(3, p.moneda());
+                    pstmt.setString(4, p.metodo());
+                    pstmt.setString(5, p.destino());
+                    pstmt.setString(6, p.referencia());
+                    pstmt.setDouble(7, p.tasaBcv()); // Tasa usada para ESE pago
+                    pstmt.addBatch();
+                }
+                pstmt.executeBatch();
+                LOGGER.info("Pagos de venta insertados: " + pagosAgregados.size());
+            }
+
+            // 4. GUARDAR PROPINA
             if (propina > 0) {
                 String sqlTip = "INSERT INTO tips (sale_id, recipient_name, amount) VALUES (?, ?, ?)";
 
@@ -1389,6 +1426,7 @@ public class CapelliSalesWindow extends JFrame {
                     LOGGER.info("Propina insertada: $" + propina + " para " + destinatarioPropina);
                 }
             }
+            
             conn.commit();
 
             LOGGER.info("Venta registrada exitosamente. ID: " + saleId);
@@ -1397,8 +1435,9 @@ public class CapelliSalesWindow extends JFrame {
             ConfigManager.setCorrelative(nextCorrelative);
             loadApplicationSettings();
 
-            String mensajeExito = construirMensajeExito(saleId, totalEnDolares, moneda,
-                    montoPagadoEnDolares, tasaBcv);
+            // MENSAJE DE ÉXITO SIMPLIFICADO
+            String mensajeExito = construirMensajeExito(saleId, totalEnDolares,
+                    totalPagadoEnDolares);
             JOptionPane.showMessageDialog(this,
                     mensajeExito,
                     "✅ Factura Generada Exitosamente",
@@ -1466,35 +1505,23 @@ public class CapelliSalesWindow extends JFrame {
                 + " (Error: no se encontró en la lista 'trabajadorasList' de la aplicación)");
     }
     
-    private String construirMensajeExito(long saleId, double total, String moneda,
-            double montoPagado, double tasaBcv) {
-        DecimalFormat df = new DecimalFormat("#,##0.00");
-
+    /**
+     * Mensaje de éxito simplificado para pagos múltiples.
+     */
+    private String construirMensajeExito(long saleId, double total, double montoPagado) {
         StringBuilder mensaje = new StringBuilder();
         mensaje.append("Venta registrada exitosamente\n\n");
         mensaje.append("═══════════════════════════════════\n");
         mensaje.append("ID de Venta: ").append(saleId).append("\n");
-        mensaje.append("N° Factura: ").append(currentCorrelative).append("\n"); // MODIFICADO
+        mensaje.append("N° Factura: ").append(currentCorrelative).append("\n");
         mensaje.append("───────────────────────────────────\n");
 
-        if (moneda.equals("$")) {
-            mensaje.append("Total: $").append(df.format(total)).append("\n");
-            mensaje.append("Pagado: $").append(df.format(montoPagado)).append("\n");
+        mensaje.append("Total: $").append(currencyFormat.format(total)).append("\n");
+        mensaje.append("Pagado: $").append(currencyFormat.format(montoPagado)).append("\n");
 
-            double vuelto = montoPagado - total;
-            if (vuelto > 0) {
-                mensaje.append("Vuelto: $").append(df.format(vuelto)).append("\n");
-            }
-        } else {
-            mensaje.append("Total: Bs ").append(df.format(total * tasaBcv)).append("\n");
-            mensaje.append("Pagado: Bs ").append(df.format(montoPagado * tasaBcv)).append("\n");
-
-            double vuelto = (montoPagado * tasaBcv) - (total * tasaBcv);
-            if (vuelto > 0) {
-                mensaje.append("Vuelto: Bs ").append(df.format(vuelto)).append("\n");
-            }
-
-            mensaje.append("\n(Equivalente en $: ").append(df.format(total)).append(")\n");
+        double vuelto = montoPagado - total;
+        if (vuelto > 0.01) { // Tolerancia
+            mensaje.append("Vuelto: $").append(currencyFormat.format(vuelto)).append("\n");
         }
 
         mensaje.append("═══════════════════════════════════\n");
@@ -1502,6 +1529,7 @@ public class CapelliSalesWindow extends JFrame {
 
         return mensaje.toString();
     }
+
 
     private Service obtenerServicioPorNombre(String nombre) {
         Service service = serviciosMap.get(nombre);
@@ -1513,7 +1541,7 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private void limpiarVentana() {
-        ivaExcluido = false; // <-- MODIFICACIÓN (IVA)
+        ivaExcluido = false; 
         clienteActual = null;
         cedulaTipoComboBox.setSelectedItem("V");
         cedulaNumeroField.setText("");
@@ -1526,25 +1554,26 @@ public class CapelliSalesWindow extends JFrame {
         
         serviciosAgregados.clear();
         tableModel.setRowCount(0);
-        propinaField.setText("0.00");
-        montoPagadoField.setText("0.00");
-        descuentoComboBox.setSelectedIndex(0);
-        
-        // --- MODIFICACIÓN (Transfer $) ---
+
+        // --- NUEVA LÓGICA DE LIMPIEZA DE PAGO ---
+        pagosAgregados.clear();
+        pagosTableModel.setRowCount(0);
+        montoPagoField.setText("0.00"); // Limpiar campo de agregar pago
         if (referenciaUsdField != null) {
             referenciaUsdField.setText("");
-            transferenciaHotmailRadio.setSelected(true);
         }
-        // --- FIN MODIFICACIÓN ---
+        // --- FIN NUEVA LÓGICA ---
+
+        propinaField.setText("0.00");
+        descuentoComboBox.setSelectedIndex(0);
         
         monedaBs.setSelected(true);
         actualizarMetodosPago();
-        actualizarPanelesPago(); // <-- MODIFICACIÓN (Transfer $)
+        actualizarPanelesPago(); 
         
         actualizarTotales();
     }
 
-    // --- MODIFICACIÓN: MÉTODO NUEVO (IVA Toggle) ---
     private void toggleIVA() {
         ivaExcluido = !ivaExcluido; // Invierte el valor
         if (ivaExcluido) {
@@ -1560,9 +1589,7 @@ public class CapelliSalesWindow extends JFrame {
         }
         actualizarTotales(); // Recalcula
     }
-    // --- FIN MODIFICACIÓN ---
 
-    // --- MODIFICACIÓN: MÉTODO NUEVO (Transfer $) ---
     private void actualizarPanelesPago() {
         String selectedMethod = (String) pagoComboBox.getSelectedItem();
         boolean esBs = monedaBs.isSelected();
@@ -1570,7 +1597,6 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.setVisible(esBs && "Pago Movil".equals(selectedMethod));
         transferenciaUsdPanel.setVisible(!esBs && "Transferencia".equals(selectedMethod));
     }
-    // --- FIN MODIFICACIÓN ---
 
     public static void main(String[] args) throws SQLException {
         LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");
