@@ -54,6 +54,7 @@ import net.miginfocom.swing.MigLayout;
 public class CapelliSalesWindow extends JFrame {
 
     private static final Logger LOGGER = Logger.getLogger(CapelliSalesWindow.class.getName());
+    private boolean ivaExcluido = false; // <-- MODIFICACIÓN
     private Map<String, Double> preciosServicios = new HashMap<>();
     private List<String> trabajadorasNombres = new ArrayList<>();
     private List<Trabajadora> trabajadorasList = new ArrayList<>();
@@ -93,6 +94,13 @@ public class CapelliSalesWindow extends JFrame {
     private JRadioButton pagoMovilRosaRadio;
     private ButtonGroup pagoMovilDestinoGroup;
     private JPanel pagoMovilPanel;
+    
+    // --- MODIFICACIÓN: AÑADIR ESTO ---
+    private JPanel transferenciaUsdPanel;
+    private JRadioButton transferenciaHotmailRadio, transferenciaGmailRadio, transferenciaIngridRadio;
+    private ButtonGroup transferenciaUsdDestinoGroup;
+    private JTextField referenciaUsdField;
+    // --- FIN MODIFICACIÓN ---
     
     private JSpinner dateSpinner;
     private JTextField manualBcvField;
@@ -229,6 +237,16 @@ public class CapelliSalesWindow extends JFrame {
                 promptForCorrelativeChange();
             }
         });
+
+        // --- MODIFICACIÓN: AÑADIR ESTO ---
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_I, KeyEvent.CTRL_DOWN_MASK), "toggleIVA");
+        am.put("toggleIVA", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                toggleIVA();
+            }
+        });
+        // --- FIN MODIFICACIÓN ---
     }
 
     private void promptForCorrelativeChange() {
@@ -1001,9 +1019,35 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.add(pagoMovilRosaRadio);
         pagoMovilPanel.setVisible(true); 
 
+        // --- MODIFICACIÓN: AÑADIR ESTE BLOQUE ---
+        transferenciaUsdPanel = new JPanel(new MigLayout("wrap 2, insets 0", "[right]10[grow,fill]"));
+        transferenciaHotmailRadio = new JRadioButton("@hotmail", true);
+        transferenciaGmailRadio = new JRadioButton("@Gmail");
+        transferenciaIngridRadio = new JRadioButton("Ingrid");
+        transferenciaUsdDestinoGroup = new ButtonGroup();
+        transferenciaUsdDestinoGroup.add(transferenciaHotmailRadio);
+        transferenciaUsdDestinoGroup.add(transferenciaGmailRadio);
+        transferenciaUsdDestinoGroup.add(transferenciaIngridRadio);
+        
+        JPanel radioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        radioPanel.add(transferenciaHotmailRadio);
+        radioPanel.add(transferenciaGmailRadio);
+        radioPanel.add(transferenciaIngridRadio);
+
+        transferenciaUsdPanel.add(new JLabel("Destino:"));
+        transferenciaUsdPanel.add(radioPanel, "growx");
+        
+        referenciaUsdField = new JTextField();
+        transferenciaUsdPanel.add(new JLabel("Ref:"));
+        transferenciaUsdPanel.add(referenciaUsdField, "growx");
+        
+        transferenciaUsdPanel.setVisible(false); // Oculto por defecto
+        // --- FIN MODIFICACIÓN ---
+
         gbcPago.gridx = 1;
         gbcPago.gridy = 2;
         pagoPanel.add(pagoMovilPanel, gbcPago);
+        pagoPanel.add(transferenciaUsdPanel, gbcPago); // <-- MODIFICACIÓN
 
         gbcPago.gridx = 0;
         gbcPago.gridy = 3;
@@ -1023,18 +1067,27 @@ public class CapelliSalesWindow extends JFrame {
         gbcPago.weightx = 1.0;
         pagoPanel.add(vueltoLabel, gbcPago);
 
+        // --- MODIFICACIÓN: Listeners ---
         ActionListener updateListener = e -> {
             actualizarMetodosPago();
             actualizarTotales();
+            actualizarPanelesPago(); // <-- AÑADIDO
         };
         descuentoComboBox.addActionListener(e -> actualizarTotales()); 
         monedaBs.addActionListener(updateListener);
         monedaDolar.addActionListener(updateListener);
 
+        // REEMPLAZAR ESTO:
+        /*
         pagoComboBox.addActionListener(e -> {
             String selectedMethod = (String) pagoComboBox.getSelectedItem();
             pagoMovilPanel.setVisible("Pago Movil".equals(selectedMethod));
         });
+        */
+        
+        // POR ESTO:
+        pagoComboBox.addActionListener(e -> actualizarPanelesPago());
+        // --- FIN MODIFICACIÓN ---
 
         JButton facturarBtn = new JButton("Generar Factura");
         facturarBtn.setFont(new Font("Arial", Font.BOLD, 16));
@@ -1060,6 +1113,7 @@ public class CapelliSalesWindow extends JFrame {
         return panel;
     }
 
+    // --- MODIFICACIÓN: Listener de pago ---
     private void actualizarMetodosPago() {
         pagoComboBox.removeAllItems();
         if (monedaBs.isSelected()) {
@@ -1067,9 +1121,9 @@ public class CapelliSalesWindow extends JFrame {
         } else {
             metodosPagoUsd.forEach(pagoComboBox::addItem);
         }
-        String selectedMethod = (String) pagoComboBox.getSelectedItem();
-        pagoMovilPanel.setVisible("Pago Movil".equals(selectedMethod));
+        // Se elimina la lógica de visibilidad de aquí
     }
+    // --- FIN MODIFICACIÓN ---
 
 
     private void actualizarTotales() {
@@ -1090,7 +1144,9 @@ public class CapelliSalesWindow extends JFrame {
         }
         
         double subtotalConDescuento = subtotal - descuento;
-        double iva = subtotalConDescuento * AppConfig.getVatPercentage();
+        // --- MODIFICACIÓN: Cálculo de IVA ---
+        double iva = ivaExcluido ? 0.0 : subtotalConDescuento * AppConfig.getVatPercentage();
+        // --- FIN MODIFICACIÓN ---
         double total = subtotalConDescuento + iva + propina;
 
         DecimalFormat df = new DecimalFormat("#,##0.00");
@@ -1143,7 +1199,9 @@ public class CapelliSalesWindow extends JFrame {
         double descuento = tipoDesc.equals("Promoción") ? subtotal * AppConfig.getPromoDiscountPercentage() : 0.0;
 
         double subtotalConDescuento = subtotal - descuento;
-        double iva = subtotalConDescuento * AppConfig.getVatPercentage();
+        // --- MODIFICACIÓN: Cálculo de IVA ---
+        double iva = ivaExcluido ? 0.0 : subtotalConDescuento * AppConfig.getVatPercentage();
+        // --- FIN MODIFICACIÓN ---
         double total = subtotalConDescuento + iva + propina;
 
         double montoPagado = 0.0;
@@ -1177,15 +1235,34 @@ public class CapelliSalesWindow extends JFrame {
                 tipoDesc
         );
 
-        String destinoPagoMovil = null;
-        if ("Pago Movil".equals(metodoPago)) {
-            destinoPagoMovil = pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli";
+        // --- MODIFICACIÓN: Lógica de Destino/Referencia ---
+        String destinoPago = null;
+        String referenciaPago = null;
+
+        if ("Pago Movil".equals(metodoPago) && monedaBs.isSelected()) {
+            destinoPago = pagoMovilRosaRadio.isSelected() ? "Rosa" : "Capelli";
+        } else if ("Transferencia".equals(metodoPago) && monedaDolar.isSelected()) {
+            if (transferenciaHotmailRadio.isSelected()) {
+                destinoPago = "@hotmail";
+            } else if (transferenciaGmailRadio.isSelected()) {
+                destinoPago = "@Gmail";
+            } else if (transferenciaIngridRadio.isSelected()) {
+                destinoPago = "Ingrid";
+            }
+            referenciaPago = referenciaUsdField.getText().trim();
         }
+        // --- FIN MODIFICACIÓN ---
 
         ValidationResult pagoResult = VentaValidator.validateMetodoPago(
-                metodoPago, moneda, destinoPagoMovil
+                metodoPago, moneda, destinoPago // Modificado
         );
         result.merge(pagoResult);
+
+        // --- MODIFICACIÓN: Validar Referencia ---
+        if ("Transferencia".equals(metodoPago) && monedaDolar.isSelected() && (referenciaPago == null || referenciaPago.isEmpty())) {
+            result.addError("Referencia", "Debe ingresar la referencia de la transferencia en $");
+        }
+        // --- FIN MODIFICACIÓN ---
 
         if (propina > 0) {
             String destinatarioPropina = propinaTrabajadoraComboBox.getSelectedItem() != null
@@ -1228,10 +1305,12 @@ public class CapelliSalesWindow extends JFrame {
                 new java.util.Date();
             java.sql.Timestamp saleDateSql = new java.sql.Timestamp(saleDateUtil.getTime());
 
+            // --- MODIFICACIÓN: SQL INSERT ---
             String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
                     + "discount_amount, vat_amount, total, payment_method, currency, "
-                    + "payment_destination, bcv_rate_at_sale, correlative_number) " 
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "payment_destination, bcv_rate_at_sale, correlative_number, payment_reference) " 
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            // --- FIN MODIFICACIÓN ---
 
             try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
                 
@@ -1248,13 +1327,23 @@ public class CapelliSalesWindow extends JFrame {
                 pstmt.setDouble(7, totalEnDolares); 
                 pstmt.setString(8, metodoPago); 
                 pstmt.setString(9, moneda); 
-                if (destinoPagoMovil != null) {
-                    pstmt.setString(10, destinoPagoMovil); 
+                
+                // --- MODIFICACIÓN: Guardar Destino/Referencia ---
+                if (destinoPago != null) {
+                    pstmt.setString(10, destinoPago); 
                 } else {
                     pstmt.setNull(10, java.sql.Types.VARCHAR); 
                 }
                 pstmt.setDouble(11, tasaBcv); 
                 pstmt.setString(12, String.valueOf(correlativeToSave));
+                
+                if (referenciaPago != null) {
+                    pstmt.setString(13, referenciaPago);
+                } else {
+                    pstmt.setNull(13, java.sql.Types.VARCHAR);
+                }
+                // --- FIN MODIFICACIÓN ---
+
                 pstmt.executeUpdate();
             }
 
@@ -1424,6 +1513,7 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private void limpiarVentana() {
+        ivaExcluido = false; // <-- MODIFICACIÓN (IVA)
         clienteActual = null;
         cedulaTipoComboBox.setSelectedItem("V");
         cedulaNumeroField.setText("");
@@ -1440,11 +1530,47 @@ public class CapelliSalesWindow extends JFrame {
         montoPagadoField.setText("0.00");
         descuentoComboBox.setSelectedIndex(0);
         
+        // --- MODIFICACIÓN (Transfer $) ---
+        if (referenciaUsdField != null) {
+            referenciaUsdField.setText("");
+            transferenciaHotmailRadio.setSelected(true);
+        }
+        // --- FIN MODIFICACIÓN ---
+        
         monedaBs.setSelected(true);
         actualizarMetodosPago();
+        actualizarPanelesPago(); // <-- MODIFICACIÓN (Transfer $)
         
         actualizarTotales();
     }
+
+    // --- MODIFICACIÓN: MÉTODO NUEVO (IVA Toggle) ---
+    private void toggleIVA() {
+        ivaExcluido = !ivaExcluido; // Invierte el valor
+        if (ivaExcluido) {
+            JOptionPane.showMessageDialog(this, 
+                "IVA (" + (AppConfig.getVatPercentage() * 100) + "%) Excluido para ESTA factura.", 
+                "Modo Sin IVA", 
+                JOptionPane.WARNING_MESSAGE);
+        } else {
+            JOptionPane.showMessageDialog(this, 
+                "IVA (" + (AppConfig.getVatPercentage() * 100) + "%) Incluido para ESTA factura.", 
+                "Modo Con IVA", 
+                JOptionPane.INFORMATION_MESSAGE);
+        }
+        actualizarTotales(); // Recalcula
+    }
+    // --- FIN MODIFICACIÓN ---
+
+    // --- MODIFICACIÓN: MÉTODO NUEVO (Transfer $) ---
+    private void actualizarPanelesPago() {
+        String selectedMethod = (String) pagoComboBox.getSelectedItem();
+        boolean esBs = monedaBs.isSelected();
+        
+        pagoMovilPanel.setVisible(esBs && "Pago Movil".equals(selectedMethod));
+        transferenciaUsdPanel.setVisible(!esBs && "Transferencia".equals(selectedMethod));
+    }
+    // --- FIN MODIFICACIÓN ---
 
     public static void main(String[] args) throws SQLException {
         LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");

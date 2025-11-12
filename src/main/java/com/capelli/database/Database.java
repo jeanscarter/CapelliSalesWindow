@@ -203,6 +203,7 @@ public class Database {
                 + "    payment_method TEXT,\n"
                 + "    currency TEXT,\n"
                 + "    payment_destination TEXT,\n"
+                + "    payment_reference TEXT,\n" // <-- MODIFICACIÓN
                 + "    FOREIGN KEY (client_id) REFERENCES clients (client_id)\n"
                 + ");";
 
@@ -306,6 +307,19 @@ public class Database {
                     LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para Correlativo", e);
                 }
             }
+            
+            // --- MODIFICACIÓN ---
+            try {
+                stmt.execute("ALTER TABLE sales ADD COLUMN payment_reference TEXT");
+                LOGGER.info("Columna 'payment_reference' agregada a la tabla 'sales'.");
+            } catch (SQLException e) {
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'payment_reference' ya existe en 'sales'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para payment_reference", e);
+                }
+            }
+            // --- FIN MODIFICACIÓN ---
             
             // ===== NUEVA ALTERACIÓN PARA CATEGORÍA DE SERVICIO =====
             try {
