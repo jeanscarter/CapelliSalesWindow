@@ -256,8 +256,9 @@ public class Database {
                 + "    service_id INTEGER NOT NULL,\n"
                 + "    employee_id INTEGER NOT NULL,\n"
                 + "    price_at_sale REAL NOT NULL,\n"
+                + "    client_brought_product BOOLEAN DEFAULT 0,\n"
                 + "    FOREIGN KEY (sale_id) REFERENCES sales (sale_id),\n"
-                + "    FOREIGN KEY (service_id) REFERENCES services (service_id),\n" // <-- Esta es la restricción que falló
+                + "    FOREIGN KEY (service_id) REFERENCES services (service_id),\n"
                 + "    FOREIGN KEY (employee_id) REFERENCES trabajadoras (id)\n"
                 + ");";
 
@@ -371,6 +372,17 @@ public class Database {
                     LOGGER.info("Columna 'is_active' ya existe en 'services'.");
                 } else {
                     LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para is_active", e);
+                }
+            }
+            
+            try {
+                stmt.execute("ALTER TABLE sale_items ADD COLUMN client_brought_product BOOLEAN DEFAULT 0");
+                LOGGER.info("Columna 'client_brought_product' agregada a la tabla 'sale_items'.");
+            } catch (SQLException e) {
+                if (e.getMessage().contains("duplicate column name")) {
+                    LOGGER.info("Columna 'client_brought_product' ya existe en 'sale_items'.");
+                } else {
+                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sale_items' para client_brought_product", e);
                 }
             }
 

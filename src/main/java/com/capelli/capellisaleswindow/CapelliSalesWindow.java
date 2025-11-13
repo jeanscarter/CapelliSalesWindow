@@ -1391,17 +1391,20 @@ public class CapelliSalesWindow extends JFrame {
             }
 
             // 2. GUARDAR LOS ITEMS DE LA VENTA
-            String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale) "
-                    + "VALUES (?, ?, ?, ?)";
+            String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale, client_brought_product) "
+                    + "VALUES (?, ?, ?, ?, ?)";
 
             try (PreparedStatement pstmt = conn.prepareStatement(sqlItems)) {
                 for (VentaServicio vs : serviciosAgregados) {
                     int serviceId = getServiceId(vs.getServicio(), conn);
                     int employeeId = getEmployeeIdByName(vs.getTrabajadora(), conn);
+                    boolean clienteTrajo = vs.getServicio().contains(" (Cliente)");
+                    
                     pstmt.setLong(1, saleId);
                     pstmt.setInt(2, serviceId);
                     pstmt.setInt(3, employeeId);
                     pstmt.setDouble(4, vs.getPrecio());
+                    pstmt.setBoolean(5, clienteTrajo);
                     pstmt.addBatch();
                 }
 

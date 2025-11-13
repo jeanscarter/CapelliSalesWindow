@@ -119,6 +119,7 @@ public class SalesDashboardWindow extends JFrame {
                      "    strftime('%d/%m/%Y %H:%M', s.sale_date, 'localtime') as sale_date, " +
                      "    COALESCE(c.full_name, 'Cliente Genérico') as client_name, " +
                      "    COALESCE(ser.name, 'SERVICIO BORRADO') as service_name, " + 
+                     "    si.client_brought_product, " +
                      "    COALESCE((t.nombres || ' ' || t.apellidos), 'TRABAJADORA BORRADA') as employee_name, " + 
                      "    si.price_at_sale, " +
                      "    s.discount_amount, " +
@@ -137,11 +138,18 @@ public class SalesDashboardWindow extends JFrame {
 
             int rowCount = 0;
             while (rs.next()) {
+                
+                String serviceName = rs.getString("service_name");
+                boolean broughtProduct = rs.getBoolean("client_brought_product");
+                if (broughtProduct) {
+                    serviceName += " (Cliente)";
+                }
+                
                 salesTableModel.addRow(new Object[]{
                     rs.getInt("sale_id"),
                     rs.getString("sale_date"),
                     rs.getString("client_name"),
-                    rs.getString("service_name"),
+                    serviceName,
                     rs.getString("employee_name"),
                     currencyFormat.format(rs.getDouble("price_at_sale")),
                     currencyFormat.format(rs.getDouble("discount_amount")),

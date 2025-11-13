@@ -61,7 +61,8 @@ public class PayrollService {
                 + "    si.price_at_sale, "
                 + "    svc.name AS service_name, "
                 + "    COALESCE(svc.service_category, 'Sin Categoria') AS service_category, "
-                + "    (t.nombres || ' ' || t.apellidos) as trabajadora_name "
+                + "    (t.nombres || ' ' || t.apellidos) as trabajadora_name, "
+                + "    si.client_brought_product "
                 + "FROM "
                 + "    sale_items si "
                 + "JOIN "
@@ -88,6 +89,7 @@ public class PayrollService {
                 String serviceName = rs.getString("service_name");
                 String serviceCategory = rs.getString("service_category");
                 String trabajadoraName = rs.getString("trabajadora_name");
+                boolean clientBroughtProduct = rs.getBoolean("client_brought_product");
                 
                 double commissionForItem = calculateCommissionForItem(
                         trabajadoraName, 
@@ -95,7 +97,8 @@ public class PayrollService {
                         serviceName, 
                         serviceCategory, 
                         price, 
-                        ruleMap
+                        ruleMap,
+                        clientBroughtProduct
                 );
                 
                 // Acumular la comisión
@@ -124,12 +127,26 @@ public class PayrollService {
      * Lógica de comisión que prioriza excepciones hardcodeadas y
      * luego usa las reglas de la base de datos (pasadas en ruleMap).
      */
-    private double calculateCommissionForItem(String tName, int tId, String sName, String sCat, double price, Map<String, Double> ruleMap) {
+    private double calculateCommissionForItem(String tName, int tId, String sName, String sCat, double price, Map<String, Double> ruleMap, boolean clientBroughtProduct) {
         
         // Definición de grupos de servicios especiales
         boolean isDepilacion = sName.equals("Cejas") || sName.equals("Bozo");
 
         // --- 1. Reglas de Excepción (Prioridad Alta) ---
+
+        // --- NUEVA REGLA: Lógica de "Color (Tinte)" (Aplica a TODOS) ---
+        if (sName.equals("Color (Tinte)")) {
+            if (clientBroughtProduct) {
+                // Scenario 2: Cliente trae producto. Comisión es 50% de $25 (fijo $12.5)
+                return 12.5; 
+            } else {
+                // Scenario 1: Salón pone producto.
+                // 50% producto, 50% del restante (50%) para la trabajadora
+                // (price * 0.50) * 0.50 = price * 0.25
+                return price * 0.25;
+            }
+        }
+        // --- FIN NUEVA REGLA ---
 
         // --- Reglas para Jaqueline Añez, Dayana Govea, Maria Virginia Romero ---
         if (tName.equals("Jaqueline Añez") || 
@@ -165,6 +182,14 @@ public class PayrollService {
 
         // --- Reglas para Belkis Gutierrez ---
         else if (tName.equals("Belkis Gutierrez")) {
+            
+            // NUEVA REGLA PARA MECHAS (Belkis)
+            if (sName.equals("Mechas")) {
+                // 40% para producto, 60% para la trabajadora DE la base comisionable (que es el 60% del precio)
+                // (price * 0.60) * 0.60 = price * 0.36
+                return price * 0.36; // 36%
+            }
+            
             if (sName.equals("Keratina")) {
                 return price * 0.70; // 70% (Excepción sobre Químicos)
             }
@@ -182,6 +207,14 @@ public class PayrollService {
         
         // --- Reglas para Jeimy Añez ---
         else if (tName.equals("Jeimy Añez")) {
+            
+            // NUEVA REGLA PARA MECHAS (Jeimy)
+            if (sName.equals("Mechas")) {
+                // 40% para producto, 60% para la trabajadora DE la base comisionable (que es el 60% del precio)
+                // (price * 0.60) * 0.60 = price * 0.36
+                return price * 0.36; // 36%
+            }
+            
             // Excepción Extensiones (Montos fijos)
             if (sName.equals("Extensiones (1 Paquete)")) return 20.0;
             if (sName.equals("Extensiones (2 Paquetes)")) return 30.0;
