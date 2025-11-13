@@ -333,7 +333,6 @@ public class Database {
                 }
             }
             
-            // ===== INICIO DE MODIFICACIÓN: Añadida columna 'is_active' =====
             try {
                 stmt.execute("ALTER TABLE services ADD COLUMN is_active BOOLEAN DEFAULT 1");
                 LOGGER.info("Columna 'is_active' agregada a la tabla 'services'.");
@@ -344,12 +343,9 @@ public class Database {
                     LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para is_active", e);
                 }
             }
-            // ===== FIN DE MODIFICACIÓN =====
 
-            // ===== INICIO DE MODIFICACIÓN DE SERVICIOS =====
             LOGGER.info("Agregando/Actualizando lista de servicios...");
             
-            // Servicios existentes (modificados)
             addOrUpdateService(conn, "Lavado", 10.0, 0.0, 0.0, 0.0, true, 8.0); 
             addOrUpdateService(conn, "Secado", 10.0, 12.0, 15.0, 20.0, false, 0.0);
             addOrUpdateService(conn, "Ondas", 15.0, 20.0, 35.0, 40.0, false, 0.0);
@@ -364,8 +360,6 @@ public class Database {
             addOrUpdateService(conn, "Manicure Tradicional", 12.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Pedicure Tradicional", 12.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Keratina", 60.0, 120.0, 0.0, 0.0, false, 0.0);
-            
-            // Servicios nuevos
             addOrUpdateService(conn, "Hidratación solo", 15.0, 20.0, 25.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Hidratación Fusio-Dose", 35.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Secado con extensiones", 25.0, 30.0, 45.0, 0.0, false, 0.0);
@@ -385,7 +379,6 @@ public class Database {
 
             LOGGER.info("Lista de servicios actualizada.");
             
-            // Asignar categorías de servicio (actualizado)
             stmt.execute("UPDATE services SET service_category = 'Peluqueria' WHERE name IN ('Secado', 'Corte Puntas', 'Corte Elaborado', 'Peinados', 'Ondas', 'Planchado', 'Maquillaje', 'Pestañas', 'Cejas', 'Bozo', 'Secado con extensiones')");
             stmt.execute("UPDATE services SET service_category = 'Quimico' WHERE name IN ('Color (Tinte)', 'Mechas', 'Keratina', 'Hidratación solo', 'Hidratación Fusio-Dose')");
             stmt.execute("UPDATE services SET service_category = 'Manos/Pies' WHERE name IN ('Manicure Tradicional', 'Pedicure Tradicional', 'Manicure Gelish', 'Manicure Rubber', 'Manicure Polygel', 'Pedicure Gelish', 'Hidratación M/P')");
@@ -394,17 +387,12 @@ public class Database {
             stmt.execute("UPDATE services SET service_category = 'Otros' WHERE name IN ('Productos')");
             LOGGER.info("Categorías de servicio por defecto re-asignadas.");
             
-            // ===== INICIO DE MODIFICACIÓN: Desactivar servicios obsoletos en lugar de borrarlos =====
             try {
                 stmt.execute("UPDATE services SET is_active = 0 WHERE name IN ('Hidratación + Secado', 'Aplicación de Tinte', 'Mantenimiento', 'Extensiones')");
                 LOGGER.info("Servicios obsoletos desactivados (is_active = 0).");
             } catch (SQLException e) {
                 LOGGER.log(Level.SEVERE, "Error al desactivar servicios obsoletos", e);
             }
-            // ===== FIN DE MODIFICACIÓN =====
-            
-            // ===== FIN DE MODIFICACIÓN DE SERVICIOS =====
-
         
             LOGGER.info("Agregando/Actualizando lista de trabajadoras y cuentas...");
 
@@ -437,6 +425,9 @@ public class Database {
             addOrUpdateCuenta(conn, "9200133", "Banco Nacional de Crédito (BNC)", "Corriente", "01160148150014749505", false);
             addOrUpdateCuenta(conn, "9200133", "Bancamiga", "Corriente", "01720112381125322600", false);
             addOrUpdateCuenta(conn, "9200133", "Banesco", "Corriente", "01340077650773172568", false);
+
+            addOrUpdateTrabajadora(conn, "Jaqueline", "Añez", "V", "24734839", "04246703185");
+            addOrUpdateCuenta(conn, "24734839", "Banco Provincial", "Corriente", "01080059500100533199", true);
 
             LOGGER.info("Lista de trabajadoras y cuentas actualizada.");
 
