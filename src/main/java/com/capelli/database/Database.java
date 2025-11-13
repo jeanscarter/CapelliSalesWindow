@@ -134,6 +134,36 @@ public class Database {
             pstmt.executeUpdate();
         }
     }
+    
+    /**
+     * Inserta o actualiza una regla de comisión.
+     */
+    private static void addOrUpdateCommissionRule(Connection conn, String trabajadora_ci, String service_category, double commission_rate) throws SQLException {
+        int trabajadora_id = -1;
+        String sqlGetId = "SELECT id FROM trabajadoras WHERE numero_ci = ?";
+        try (PreparedStatement pstmtGetId = conn.prepareStatement(sqlGetId)) {
+            pstmtGetId.setString(1, trabajadora_ci);
+            ResultSet rs = pstmtGetId.executeQuery();
+            if (rs.next()) {
+                trabajadora_id = rs.getInt("id");
+            } else {
+                LOGGER.warning("No se encontró trabajadora con CI: " + trabajadora_ci + " para agregar regla de comisión. Saltando...");
+                return; 
+            }
+        }
+
+        String sqlRule = "INSERT INTO trabajadora_commission_rules (trabajadora_id, service_category, commission_rate) " +
+                         "VALUES (?, ?, ?) " +
+                         "ON CONFLICT(trabajadora_id, service_category) DO UPDATE SET " +
+                         "  commission_rate = excluded.commission_rate";
+                         
+        try (PreparedStatement pstmt = conn.prepareStatement(sqlRule)) {
+            pstmt.setInt(1, trabajadora_id);
+            pstmt.setString(2, service_category);
+            pstmt.setDouble(3, commission_rate);
+            pstmt.executeUpdate();
+        }
+    }
 
 
     /**
@@ -430,6 +460,47 @@ public class Database {
             addOrUpdateCuenta(conn, "24734839", "Banco Provincial", "Corriente", "01080059500100533199", true);
 
             LOGGER.info("Lista de trabajadoras y cuentas actualizada.");
+            
+            LOGGER.info("Agregando/Actualizando reglas de comisión...");
+            
+            // --- Reglas de Comisión Base (por categoría) ---
+            
+            // Maria Diaz (CI 7774946)
+            addOrUpdateCommissionRule(conn, "7774946", "Manos/Pies", 0.70);
+            
+            // Jaqueline Añez (CI 24734839)
+            addOrUpdateCommissionRule(conn, "24734839", "Peluqueria", 0.50);
+            addOrUpdateCommissionRule(conn, "24734839", "Quimico", 0.40); // Regla "Hidratación 40%" se aplica a Quimicos
+            
+            // Dayana Govea (CI 18522231)
+            addOrUpdateCommissionRule(conn, "18522231", "Peluqueria", 0.50);
+            addOrUpdateCommissionRule(conn, "18522231", "Quimico", 0.40); // Regla "Hidratación 40%"
+            
+            // Maria Virginia Romero (CI 31085005)
+            addOrUpdateCommissionRule(conn, "31085005", "Peluqueria", 0.50);
+            addOrUpdateCommissionRule(conn, "31085005", "Quimico", 0.40); // Regla "Hidratación 40%"
+            
+            // Belkis Gutierrez (CI 9395233)
+            addOrUpdateCommissionRule(conn, "9395233", "Peluqueria", 0.65);
+            addOrUpdateCommissionRule(conn, "9395233", "Quimico", 0.50);
+            
+            // Aurora Sofia Exposito (CI 27683374)
+            addOrUpdateCommissionRule(conn, "27683374", "Peluqueria", 0.60);
+            addOrUpdateCommissionRule(conn, "27683374", "Quimico", 0.50);
+            
+            // Jeimy Añez (CI 18921264)
+            addOrUpdateCommissionRule(conn, "18921264", "Peluqueria", 0.60);
+            addOrUpdateCommissionRule(conn, "18921264", "Quimico", 0.50);
+            
+            // Pascualina Gutierrez (CI 5562378)
+            addOrUpdateCommissionRule(conn, "5562378", "Peluqueria", 0.60);
+            addOrUpdateCommissionRule(conn, "5562378", "Quimico", 0.50);
+            
+            // Milagros Gutierrez (CI 24342800)
+            addOrUpdateCommissionRule(conn, "24342800", "Peluqueria", 0.60);
+            addOrUpdateCommissionRule(conn, "24342800", "Quimico", 0.50);
+            
+            LOGGER.info("Reglas de comisión actualizadas.");
 
 
             LOGGER.info("Base de datos inicializada correctamente");

@@ -1322,16 +1322,38 @@ public class CapelliSalesWindow extends JFrame {
         
         int correlativeToSave = ConfigManager.getCurrentCorrelative();
 
+        // --- INICIO DE CORRECCIÓN DE FECHA ---
+        
+        java.util.Date saleDateUtil;
+        if (historicalSaleCheck.isSelected()) {
+            try {
+                // 1. Forzar al JSpinner a 'completar' la edición del usuario
+                dateSpinner.commitEdit(); 
+                saleDateUtil = (java.util.Date) dateSpinner.getValue();
+                LOGGER.info("Modo histórico: Usando fecha del spinner: " + saleDateUtil);
+            } catch (java.text.ParseException e) {
+                LOGGER.log(Level.WARNING, "Error al 'parsear' la fecha del spinner, usando fecha actual", e);
+                // Si hay un error de formato (ej: texto inválido), usar la fecha actual
+                saleDateUtil = new java.util.Date(); 
+            }
+        } else {
+            saleDateUtil = new java.util.Date();
+            LOGGER.info("Modo estándar: Usando fecha actual: " + saleDateUtil);
+        }
+        
+        // 2. Convertir la fecha a un String en formato ISO (YYYY-MM-DD HH:MM:SS)
+        // Este es el formato más seguro para SQLite, evitando errores de Timestamp
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String saleDateSqlString = sdf.format(saleDateUtil);
+        
+        // --- FIN DE CORRECCIÓN DE FECHA ---
+
         try {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            java.util.Date saleDateUtil = historicalSaleCheck.isSelected() ? 
-                (java.util.Date) dateSpinner.getValue() : 
-                new java.util.Date();
-            java.sql.Timestamp saleDateSql = new java.sql.Timestamp(saleDateUtil.getTime());
-
             // 1. GUARDAR LA VENTA (SIN DATOS DE PAGO)
+            // Se usa el String de la fecha en lugar de Timestamp
             String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
                     + "discount_amount, vat_amount, total, bcv_rate_at_sale, correlative_number) " 
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -1343,7 +1365,10 @@ public class CapelliSalesWindow extends JFrame {
                 } else {
                     pstmt.setNull(1, java.sql.Types.INTEGER);
                 }
-                pstmt.setTimestamp(2, saleDateSql); 
+                
+                // 3. Usar setString() para la fecha
+                pstmt.setString(2, saleDateSqlString); 
+                
                 pstmt.setDouble(3, subtotal); 
                 pstmt.setString(4, tipoDesc); 
                 pstmt.setDouble(5, descuento); 
@@ -1359,7 +1384,7 @@ public class CapelliSalesWindow extends JFrame {
                  ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()")) {
                 if (rs.next()) {
                     saleId = rs.getLong(1);
-                    LOGGER.info("Venta insertada con ID: " + saleId + ", Correlativo: " + correlativeToSave);
+                    LOGGER.info("Venta insertada con ID: " + saleId + ", Correlativo: " + correlativeToSave + ", Fecha: " + saleDateSqlString);
                 } else {
                     throw new SQLException("Error al obtener el ID de la venta generada (last_insert_rowid falló)");
                 }

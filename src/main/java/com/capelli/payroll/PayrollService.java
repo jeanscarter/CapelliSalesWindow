@@ -1,7 +1,9 @@
 package com.capelli.payroll;
 
+import com.capelli.database.CommissionRuleDAO;
 import com.capelli.database.Database;
 import com.capelli.database.TrabajadoraDAO;
+import com.capelli.model.CommissionRule;
 import com.capelli.model.CuentaBancaria;
 import com.capelli.model.Trabajadora;
 
@@ -16,13 +18,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class PayrollService {
 
+    private static final Logger LOGGER = Logger.getLogger(PayrollService.class.getName());
+
     /**
-     * Calcula la nómina basándose en reglas de comisión complejas y hardcodeadas.
-     * Esta versión REEMPLAZA la lógica de la tabla 'trabajadora_commission_rules'.
+     * Calcula la nómina basándose en reglas de comisión de la base de datos
+     * y aplicando excepciones hardcodeadas para casos especiales.
      */
     public List<PayrollResult> calculatePayroll(LocalDate startDate, LocalDate endDate) throws SQLException, IOException {
         
@@ -31,18 +36,31 @@ public class PayrollService {
         Map<Integer, Trabajadora> trabajadorasMap = trabajadoraDAO.getAll().stream()
                 .collect(Collectors.toMap(Trabajadora::getId, t -> t));
         
-        // Mapa para acumular las comisiones en Java
+        // 2. Cargar todas las reglas de comisión de la BD
+        CommissionRuleDAO commissionRuleDAO = new CommissionRuleDAO();
+        List<CommissionRule> allRules = commissionRuleDAO.getAll();
+        
+        // Convertir en un Mapa para búsqueda rápida: Key="trabajadora_id-service_category"
+        Map<String, Double> ruleMap = allRules.stream()
+                .collect(Collectors.toMap(
+                        rule -> rule.getTrabajadora_id() + "-" + rule.getService_category(),
+                        CommissionRule::getCommission_rate
+                ));
+        
+        LOGGER.info("Reglas de comisión cargadas: " + ruleMap.size());
+        
+        // 3. Mapa para acumular las comisiones en Java
         Map<Integer, Double> commissionTotals = new HashMap<>();
         for (Integer id : trabajadorasMap.keySet()) {
             commissionTotals.put(id, 0.0);
         }
 
-        // 2. SQL para obtener TODOS los items de venta individuales
+        // 4. SQL para obtener TODOS los items de venta individuales
         String sql = "SELECT "
                 + "    si.employee_id, "
                 + "    si.price_at_sale, "
                 + "    svc.name AS service_name, "
-                + "    svc.service_category, "
+                + "    COALESCE(svc.service_category, 'Sin Categoria') AS service_category, "
                 + "    (t.nombres || ' ' || t.apellidos) as trabajadora_name "
                 + "FROM "
                 + "    sale_items si "
@@ -63,7 +81,7 @@ public class PayrollService {
 
             ResultSet rs = pstmt.executeQuery();
 
-            // 3. Iterar en Java y aplicar lógica de comisión
+            // 5. Iterar en Java y aplicar lógica de comisión
             while (rs.next()) {
                 int employee_id = rs.getInt("employee_id");
                 double price = rs.getDouble("price_at_sale");
@@ -71,85 +89,78 @@ public class PayrollService {
                 String serviceCategory = rs.getString("service_category");
                 String trabajadoraName = rs.getString("trabajadora_name");
                 
-                double commissionForItem = calculateCommissionForItem(trabajadoraName, serviceName, serviceCategory, price);
+                double commissionForItem = calculateCommissionForItem(
+                        trabajadoraName, 
+                        employee_id, 
+                        serviceName, 
+                        serviceCategory, 
+                        price, 
+                        ruleMap
+                );
                 
                 // Acumular la comisión
                 commissionTotals.merge(employee_id, commissionForItem, Double::sum);
             }
         }
 
-        // 4. Construir el resultado final
+        // 6. Construir el resultado final
         List<PayrollResult> results = new ArrayList<>();
         for (Map.Entry<Integer, Trabajadora> entry : trabajadorasMap.entrySet()) {
             int id = entry.getKey();
             Trabajadora trabajadora = entry.getValue();
             double totalCommission = commissionTotals.getOrDefault(id, 0.0);
             
-            Optional<CuentaBancaria> primaryAccount = trabajadora.getCuentaPrincipal();
-            results.add(new PayrollResult(trabajadora, totalCommission, primaryAccount.orElse(null)));
+            // Solo añadir a la lista si tuvo comisiones (o si prefieres mostrar a todas, quita este if)
+            // if (totalCommission > 0) {
+                Optional<CuentaBancaria> primaryAccount = trabajadora.getCuentaPrincipal();
+                results.add(new PayrollResult(trabajadora, totalCommission, primaryAccount.orElse(null)));
+            // }
         }
 
         return results;
     }
 
     /**
-     * Lógica de comisión hardcodeada basada en las reglas del usuario.
+     * Lógica de comisión que prioriza excepciones hardcodeadas y
+     * luego usa las reglas de la base de datos (pasadas en ruleMap).
      */
-    private double calculateCommissionForItem(String tName, String sName, String sCat, double price) {
+    private double calculateCommissionForItem(String tName, int tId, String sName, String sCat, double price, Map<String, Double> ruleMap) {
         
-        // Definición de la categoría "Peluqueria" según el usuario
-        boolean isUserPeluqueria = sName.equals("Secado") || sName.equals("Maquillaje") || sName.equals("Ondas");
+        // Definición de grupos de servicios especiales
         boolean isDepilacion = sName.equals("Cejas") || sName.equals("Bozo");
 
-        // --- Reglas para Maria Diaz ---
-        if (tName.equals("Maria Diaz")) {
-            if (sCat.equals("Manos/Pies")) {
-                return price * 0.70; // 70%
-            }
-        }
+        // --- 1. Reglas de Excepción (Prioridad Alta) ---
 
         // --- Reglas para Jaqueline Añez, Dayana Govea, Maria Virginia Romero ---
-        else if (tName.equals("Jaqueline Añez") || 
+        if (tName.equals("Jaqueline Añez") || 
                  tName.equals("Dayana Govea") || 
                  tName.equals("Maria Virginia Romero")) {
 
-            // Regla específica de Maria Virginia
+            // Excepción Depilación (Solo Maria Virginia)
             if (tName.equals("Maria Virginia Romero")) {
                 if (isDepilacion) {
                     return price * 0.50; // 50%
                 }
             }
             
-            // Peluqueria (Usuario)
-            if (isUserPeluqueria) {
-                return price * 0.50; // 50%
-            }
-
-            // Regla Lavado
+            // Excepción Lavado (Montos fijos)
             if (sCat.equals("Lavado")) {
-                // Precios fijos para Lavado (usando tolerancia 0.01)
                 if (Math.abs(price - 10.0) < 0.01) return 4.0;
                 if (Math.abs(price - 8.0) < 0.01) return 3.0;
                 if (Math.abs(price - 12.0) < 0.01) return 4.8;
                 if (Math.abs(price - 15.0) < 0.01) return 6.0;
-                // Si el precio del lavado no es ninguno de esos, se usa 40%
-                return price * 0.40;
+                // Si no es un precio fijo, usará la regla de BD (si existe)
             }
 
-            // Regla Hidratación
+            // Excepción Hidratación (Monto fijo)
             if (sName.equals("Hidratación Fusio-Dose")) {
                 return 8.0; // $8 monto fijo
             }
-            // "Hidratación 40%" (asumimos que aplica a 'Hidratación solo' y otras no-Fusio)
-            if (sCat.equals("Quimico") && sName.contains("Hidratación")) {
-                 return price * 0.40; // 40%
-            }
 
-            // Regla Extensiones
+            // Excepción Extensiones (Montos fijos)
             if (sName.equals("Extensiones (1 Paquete)")) return 10.0;
             if (sName.equals("Extensiones (2 Paquetes)")) return 20.0;
             if (sName.equals("Extensiones (3 Paquetes)")) return 15.0; 
-            // (Medio paquete y 4 paquetes no tienen regla para este grupo)
         }
 
         // --- Reglas para Belkis Gutierrez ---
@@ -160,12 +171,6 @@ public class PayrollService {
             if (isDepilacion) {
                 return price * 0.50; // 50% (Excepción sobre Peluqueria)
             }
-            if (isUserPeluqueria) {
-                return price * 0.65; // 65%
-            }
-            if (sCat.equals("Quimico")) {
-                return price * 0.50; // 50%
-            }
         }
 
         // --- Reglas para Aurora Sofia Exposito ("Sofia") ---
@@ -173,54 +178,37 @@ public class PayrollService {
             if (isDepilacion) {
                 return price * 0.50; // 50% (Excepción sobre Peluqueria)
             }
-            if (isUserPeluqueria) {
-                return price * 0.60; // 60%
-            }
-            if (sCat.equals("Quimico")) {
-                return price * 0.50; // 50%
-            }
         }
         
         // --- Reglas para Jeimy Añez ---
         else if (tName.equals("Jeimy Añez")) {
-            // Extensiones (Excepción)
+            // Excepción Extensiones (Montos fijos)
             if (sName.equals("Extensiones (1 Paquete)")) return 20.0;
             if (sName.equals("Extensiones (2 Paquetes)")) return 30.0;
             if (sName.equals("Extensiones (3 Paquetes)") || sName.equals("Extensiones (4 Paquetes)")) {
                 return 40.0; // "3 paquetes o más"
             }
-            // (Medio Paquete no especificado)
-            
-            if (isUserPeluqueria) {
-                return price * 0.60; // 60%
-            }
-            if (sCat.equals("Quimico")) {
-                return price * 0.50; // 50%
-            }
+        }
+        
+        // --- FIN DE EXCEPCIONES ---
+
+        
+        // --- 2. Reglas Generales de Categoría (Usando el Mapa de BD) ---
+        // Si ninguna excepción se aplicó, buscar la regla de categoría.
+        
+        // CORRECCIÓN: Usar SIEMPRE la categoría del servicio (sCat)
+        String key = tId + "-" + sCat;
+        Double rate = ruleMap.get(key);
+
+        if (rate != null) {
+            // Se encontró una regla de BD (ej: Peluqueria -> 0.50)
+            return price * rate;
         }
 
-        // --- Reglas para Pascualina Gutierrez ("Pascuala") ---
-        else if (tName.equals("Pascualina Gutierrez")) {
-            if (isUserPeluqueria) {
-                return price * 0.60; // 60%
-            }
-            if (sCat.equals("Quimico")) {
-                return price * 0.50; // 50%
-            }
-        }
-
-        // --- Reglas para Milagros Gutierrez ---
-        else if (tName.equals("Milagros Gutierrez")) {
-            if (isUserPeluqueria) {
-                return price * 0.60; // 60%
-            }
-            if (sCat.equals("Quimico")) {
-                return price * 0.50; // 50%
-            }
-        }
-
-        // --- Fallback ---
-        // Si no se define ninguna regla, la comisión es 0
+        // --- 3. Fallback ---
+        // Si no se define ninguna regla (ni excepción ni categoría), la comisión es 0
+        LOGGER.warning(String.format("No se encontró regla de comisión ni excepción para: [Trabajadora: %s, Servicio: %s, Categoría: %s]. Comisión será 0.0",
+                tName, sName, sCat));
         return 0.0;
     }
 }
