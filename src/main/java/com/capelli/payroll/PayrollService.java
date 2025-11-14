@@ -49,10 +49,12 @@ public class PayrollService {
         
         LOGGER.info("Reglas de comisión cargadas: " + ruleMap.size());
         
-        // 3. Mapa para acumular las comisiones en Java
-        Map<Integer, Double> commissionTotals = new HashMap<>();
+        // 3. Mapas para acumular comisiones (Banco y Efectivo)
+        Map<Integer, Double> bankTotals = new HashMap<>();
+        Map<Integer, Double> cashTotals = new HashMap<>();
         for (Integer id : trabajadorasMap.keySet()) {
-            commissionTotals.put(id, 0.0);
+            bankTotals.put(id, 0.0);
+            cashTotals.put(id, 0.0);
         }
 
         // 4. SQL para obtener TODOS los items de venta individuales
@@ -91,18 +93,39 @@ public class PayrollService {
                 String trabajadoraName = rs.getString("trabajadora_name");
                 boolean clientBroughtProduct = rs.getBoolean("client_brought_product");
                 
-                double commissionForItem = calculateCommissionForItem(
-                        trabajadoraName, 
-                        employee_id, 
-                        serviceName, 
-                        serviceCategory, 
-                        price, 
-                        ruleMap,
-                        clientBroughtProduct
-                );
+                // ===== INICIO DE MODIFICACIÓN: Lógica de Abono Manual =====
                 
-                // Acumular la comisión
-                commissionTotals.merge(employee_id, commissionForItem, Double::sum);
+                // Si es "Abono Manual Staff" (Categoría PAGO-MANUAL)
+                if ("PAGO-MANUAL".equals(serviceCategory)) {
+                    double amount = price; // El precio es el monto a pagar
+
+                    // Excepción para Rosa, Jeimy y Milagros
+                    if (trabajadoraName.equals("Rosa Maria Gutierrez") || 
+                        trabajadoraName.equals("Jeimy Añez") || 
+                        trabajadoraName.equals("Milagros Gutierrez")) {
+                        
+                        // Va a la nómina de Efectivo $
+                        cashTotals.merge(employee_id, amount, Double::sum);
+                    } else {
+                        // Va a la nómina normal (Banco)
+                        bankTotals.merge(employee_id, amount, Double::sum);
+                    }
+                } else {
+                    // Si es un servicio normal, calcular comisión
+                    double commissionForItem = calculateCommissionForItem(
+                            trabajadoraName, 
+                            employee_id, 
+                            serviceName, 
+                            serviceCategory, 
+                            price, 
+                            ruleMap,
+                            clientBroughtProduct
+                    );
+                    
+                    // Las comisiones normales siempre van al banco
+                    bankTotals.merge(employee_id, commissionForItem, Double::sum);
+                }
+                // ===== FIN DE MODIFICACIÓN =====
             }
         }
 
@@ -111,13 +134,12 @@ public class PayrollService {
         for (Map.Entry<Integer, Trabajadora> entry : trabajadorasMap.entrySet()) {
             int id = entry.getKey();
             Trabajadora trabajadora = entry.getValue();
-            double totalCommission = commissionTotals.getOrDefault(id, 0.0);
             
-            // Solo añadir a la lista si tuvo comisiones (o si prefieres mostrar a todas, quita este if)
-            // if (totalCommission > 0) {
-                Optional<CuentaBancaria> primaryAccount = trabajadora.getCuentaPrincipal();
-                results.add(new PayrollResult(trabajadora, totalCommission, primaryAccount.orElse(null)));
-            // }
+            double totalBank = bankTotals.getOrDefault(id, 0.0);
+            double totalCash = cashTotals.getOrDefault(id, 0.0);
+            
+            Optional<CuentaBancaria> primaryAccount = trabajadora.getCuentaPrincipal();
+            results.add(new PayrollResult(trabajadora, totalBank, totalCash, primaryAccount.orElse(null)));
         }
 
         return results;
@@ -126,18 +148,9 @@ public class PayrollService {
     /**
      * Lógica de comisión que prioriza excepciones hardcodeadas y
      * luego usa las reglas de la base de datos (pasadas en ruleMap).
+     * (Se eliminó la lógica de PAGO-MANUAL de aquí, ya que se maneja arriba)
      */
     private double calculateCommissionForItem(String tName, int tId, String sName, String sCat, double price, Map<String, Double> ruleMap, boolean clientBroughtProduct) {
-        
-        // ===== INICIO DE MODIFICACIÓN =====
-        // --- 0. REGLA DE PAGO MANUAL (Prioridad Máxima) ---
-        // Esta categoría se usa para registrar ingresos que se distribuyen
-        // manualmente (ej. efectivo) y no deben generar comisión automática.
-        if ("PAGO-MANUAL".equals(sCat)) {
-            return 0.0;
-        }
-        // ===== FIN DE MODIFICACIÓN =====
-        
         
         // Definición de grupos de servicios especiales
         boolean isDepilacion = sName.equals("Cejas") || sName.equals("Bozo");

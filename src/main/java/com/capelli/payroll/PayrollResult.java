@@ -5,6 +5,7 @@ import com.capelli.model.Trabajadora;
 
 public record PayrollResult(
     Trabajadora trabajadora,
-    double amountToPay,
+    double amountToPayBank,  // Comisiones normales (para transferencia)
+    double amountToPayCash,  // Pagos manuales (para efectivo $)
     CuentaBancaria primaryAccount
 ) {}

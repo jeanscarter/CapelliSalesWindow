@@ -55,7 +55,10 @@ public class PayrollWindow extends JFrame {
         controlsPanel.add(calculateButton, "sg button");
 
         // Panel de Tabla
-        String[] columnNames = {"Trabajadora", "Monto a Pagar", "Banco Principal", "No. Cuenta", "C.I.", "Teléfono"};
+        // ===== INICIO DE MODIFICACIÓN: Añadida columna "Monto Efectivo $" =====
+        String[] columnNames = {"Trabajadora", "Monto Pagar (Banco)", "Monto Efectivo $", "Banco Principal", "No. Cuenta", "C.I.", "Teléfono"};
+        // ===== FIN DE MODIFICACIÓN =====
+        
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -96,14 +99,17 @@ public class PayrollWindow extends JFrame {
                 Trabajadora t = result.trabajadora();
                 CuentaBancaria cb = result.primaryAccount();
                 
+                // ===== INICIO DE MODIFICACIÓN: Añadidos nuevos campos al agregar fila =====
                 tableModel.addRow(new Object[]{
                     t.getNombreCompleto(),
-                    currencyFormat.format(result.amountToPay()),
+                    currencyFormat.format(result.amountToPayBank()),
+                    currencyFormat.format(result.amountToPayCash()),
                     (cb != null) ? cb.getBanco() : "N/A",
                     (cb != null) ? cb.getNumeroDeCuenta() : "N/A",
                     t.getCiCompleta(),
                     t.getTelefono()
                 });
+                // ===== FIN DE MODIFICACIÓN =====
             }
 
         } catch (SQLException | IOException e) {
