@@ -418,6 +418,10 @@ public class Database {
             addOrUpdateService(conn, "Extensiones (3 Paquetes)", 160.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Extensiones (4 Paquetes)", 180.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Productos", 35.0, 0.0, 0.0, 0.0, false, 0.0);
+            
+            // ===== INICIO DE MODIFICACIÓN: Añadir servicio de control =====
+            addOrUpdateService(conn, "Abono Manual Staff", 0.0, 0.0, 0.0, 0.0, false, 0.0);
+            // ===== FIN DE MODIFICACIÓN =====
 
             LOGGER.info("Lista de servicios actualizada.");
             
@@ -427,6 +431,11 @@ public class Database {
             stmt.execute("UPDATE services SET service_category = 'Lavado' WHERE name = 'Lavado'");
             stmt.execute("UPDATE services SET service_category = 'Extensiones' WHERE name IN ('Extensiones (Medio Paquete)', 'Extensiones (1 Paquete)', 'Extensiones (2 Paquetes)', 'Extensiones (3 Paquetes)', 'Extensiones (4 Paquetes)')");
             stmt.execute("UPDATE services SET service_category = 'Otros' WHERE name IN ('Productos')");
+            
+            // ===== INICIO DE MODIFICACIÓN: Asignar categoría de control =====
+            stmt.execute("UPDATE services SET service_category = 'PAGO-MANUAL' WHERE name = 'Abono Manual Staff'");
+            // ===== FIN DE MODIFICACIÓN =====
+            
             LOGGER.info("Categorías de servicio por defecto re-asignadas.");
             
             try {

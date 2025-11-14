@@ -1,5 +1,6 @@
 package com.capelli.validation;
 
+import com.capelli.config.AppConfig; // Necesario para obtener el porcentaje de IVA
 import java.util.List;
 import java.util.Map;
 
@@ -75,25 +76,58 @@ public class VentaValidator {
                 String.format("El subtotal no coincide con la suma de servicios (Esperado: %.2f, Actual: %.2f)", 
                     subtotalCalculado, subtotal));
         }
-        
-        // 5. Validar que el descuento no sea mayor que el subtotal
-        if (descuento > subtotal) {
+
+        // --- INICIO DE MODIFICACIÓN IVA/DESCUENTO ---
+        // 5. Separar subtotales para validación de IVA y Descuento
+        double subtotalGravable = 0.0;
+        double subtotalNoGravable = 0.0;
+        for (ServicioVenta vs : servicios) {
+            // DEBE USAR EL MISMO NOMBRE QUE EN CapelliSalesWindow.java
+            if ("Abono Manual Staff".equals(vs.getServicio())) {
+                subtotalNoGravable += vs.getPrecio();
+            } else {
+                subtotalGravable += vs.getPrecio();
+            }
+        }
+
+        // 6. Validar que el descuento no sea mayor que el subtotal (gravable)
+        if (tipoDescuento.equals("Promoción") && descuento > subtotalGravable) {
             result.addError("Descuento", 
-                "El descuento no puede ser mayor que el subtotal");
+                "El descuento de promoción no puede ser mayor que el subtotal gravable");
+        } else if (descuento > subtotal) {
+            result.addError("Descuento", 
+                "El descuento no puede ser mayor que el subtotal total");
         }
         
-        // 6. Validar que el total sea correcto
-        double totalCalculado = (subtotal - descuento) + iva + propina;
+        // 7. Validar que el total sea correcto
+        // El IVA se calcula sobre la parte gravable, después del descuento.
+        // El subtotalNoGravable no tiene descuento ni IVA.
+        double ivaCalculado = (subtotalGravable - descuento) * AppConfig.getVatPercentage();
+        
+        // Si el IVA que llegó de la ventana es 0 (porque usaron CTRL+I), 
+        // nuestra validación debe respetarlo.
+        if (iva == 0.0) {
+            ivaCalculado = 0.0; // Se asume que el usuario excluyó el IVA manualmente
+        }
+
+        if (Math.abs(ivaCalculado - iva) > 0.01) {
+             result.addError("IVA", 
+                String.format("El IVA no coincide con el cálculo (Esperado: %.2f, Actual: %.2f)", 
+                    ivaCalculado, iva));
+        }
+
+        double totalCalculado = (subtotalGravable - descuento) + subtotalNoGravable + iva + propina;
         if (Math.abs(totalCalculado - total) > 0.01) {
             result.addError("Total", 
                 String.format("El total no es correcto (Esperado: %.2f, Actual: %.2f)", 
                     totalCalculado, total));
         }
+        // --- FIN DE MODIFICACIÓN ---
         
-        // 7. Validar tipo de descuento
+        // 8. Validar tipo de descuento
         CommonValidators.validateNotEmpty(tipoDescuento, "Tipo de descuento", result);
         
-        // 8. Validar monto pagado (excepto para cuentas por cobrar)
+        // 9. Validar monto pagado (excepto para cuentas por cobrar)
         double Epsilon = 0.01; // Tolerancia para punto flotante
         
         if (!"Cuenta por Cobrar".equals(tipoDescuento)) {
@@ -109,7 +143,7 @@ public class VentaValidator {
                 "Esta venta quedará registrada como cuenta por cobrar");
         }
         
-        // 9. Validar propina si existe
+        // 10. Validar propina si existe
         if (propina > 0) {
             // Advertencia si la propina es muy alta (más del 30% del subtotal)
             if (propina > subtotal * 0.30) {
@@ -140,10 +174,15 @@ public class VentaValidator {
         CommonValidators.validateNotEmpty(servicio.getTrabajadora(), prefix + " - Trabajadora", result);
         
         // Validar precio
-        CommonValidators.validatePositive(servicio.getPrecio(), prefix + " - Precio", result);
-        
-        // Advertencia si el precio es muy bajo
-        if (servicio.getPrecio() < 1.0) {
+        // Permitimos 0 o positivo para el Abono Manual, pero positivo para el resto
+        if (servicio.getServicio().equals("Abono Manual Staff")) {
+            CommonValidators.validateNonNegative(servicio.getPrecio(), prefix + " - Precio", result);
+        } else {
+            CommonValidators.validatePositive(servicio.getPrecio(), prefix + " - Precio", result);
+        }
+
+        // Advertencia si el precio es muy bajo (pero mayor a 0)
+        if (servicio.getPrecio() > 0 && servicio.getPrecio() < 1.0) {
             result.addWarning(prefix + " - Precio", 
                 String.format("El precio (%.2f) es muy bajo, ¿es correcto?", servicio.getPrecio()));
         }
@@ -222,6 +261,11 @@ public class VentaValidator {
         Map<String, Long> servicioCount = new java.util.HashMap<>();
         
         for (ServicioVenta servicio : servicios) {
+            // El abono manual SÍ se puede repetir (uno por trabajadora)
+            if (servicio.getServicio().equals("Abono Manual Staff")) {
+                continue;
+            }
+            
             String key = servicio.getServicio() + "-" + servicio.getTrabajadora();
             servicioCount.put(key, servicioCount.getOrDefault(key, 0L) + 1);
         }
@@ -242,7 +286,7 @@ public class VentaValidator {
      * Valida límites de descuento según el tipo.
      */
     public static ValidationResult validateDescuento(String tipoDescuento, double descuento, 
-                                                     double subtotal) {
+                                                     double subtotalGravable) { // Modificado para recibir el subtotal gravable
         ValidationResult result = new ValidationResult();
         
         if (descuento == 0) {
@@ -257,19 +301,19 @@ public class VentaValidator {
         }
         
         if ("Promoción".equals(tipoDescuento)) {
-            // Validar que el descuento sea aproximadamente 20% del subtotal
-            double descuentoEsperado = subtotal * 0.20; // Asumiendo 20%
+            // Validar que el descuento sea aproximadamente 20% del subtotal GRAVABLE
+            double descuentoEsperado = subtotalGravable * AppConfig.getPromoDiscountPercentage();
             if (Math.abs(descuento - descuentoEsperado) > 0.01) {
                 result.addWarning("Descuento", 
-                    String.format("El descuento de promoción debería ser %.2f (20%%)", 
-                        descuentoEsperado));
+                    String.format("El descuento de promoción (%.2f) no coincide con el %.2f%% del subtotal gravable (%.2f)", 
+                        descuento, (AppConfig.getPromoDiscountPercentage() * 100), descuentoEsperado));
             }
         }
         
         // Validar que el descuento no sea mayor al 50% (sospechoso)
-        if (descuento > subtotal * 0.50) {
+        if (descuento > subtotalGravable * 0.50) {
             result.addWarning("Descuento", 
-                String.format("El descuento (%.2f) es mayor al 50%% del subtotal, ¿es correcto?", 
+                String.format("El descuento (%.2f) es mayor al 50%% del subtotal gravable, ¿es correcto?", 
                     descuento));
         }
         

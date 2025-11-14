@@ -1189,7 +1189,23 @@ public class CapelliSalesWindow extends JFrame {
      * Actualiza todos los labels de totales basándose en los servicios y pagos agregados.
      */
     private void actualizarTotales() {
-        double subtotal = serviciosAgregados.stream().mapToDouble(VentaServicio::getPrecio).sum();
+        
+        // ===== INICIO DE MODIFICACIÓN: Separar Subtotales =====
+        double subtotalGravable = 0.0; // Subtotal que SÍ genera IVA
+        double subtotalNoGravable = 0.0; // Subtotal que NO genera IVA (Abonos)
+
+        for (VentaServicio vs : serviciosAgregados) {
+            // Usamos el nombre del servicio que ya establecimos en Database.java
+            if (vs.getServicio().equals("Abono Manual Staff")) {
+                subtotalNoGravable += vs.getPrecio();
+            } else {
+                subtotalGravable += vs.getPrecio();
+            }
+        }
+        
+        double subtotal = subtotalGravable + subtotalNoGravable; // El subtotal total
+        // ===== FIN DE MODIFICACIÓN =====
+        
         
         double propina = 0.0;
         try {
@@ -1199,13 +1215,20 @@ public class CapelliSalesWindow extends JFrame {
         double descuento = 0.0;
         String tipoDesc = Objects.requireNonNull(descuentoComboBox.getSelectedItem()).toString();
 
+        // ===== MODIFICACIÓN DE DESCUENTO =====
+        // El descuento de promoción SÓLO aplica a los servicios gravables
         if (tipoDesc.equals("Promoción")) {
-            descuento = subtotal * AppConfig.getPromoDiscountPercentage();
-            LOGGER.fine("Descuento por promoción aplicado: " + descuento);
+            descuento = subtotalGravable * AppConfig.getPromoDiscountPercentage();
+            LOGGER.fine("Descuento por promoción (sobre subtotal gravable) aplicado: " + descuento);
         }
         
-        double subtotalConDescuento = subtotal - descuento;
-        double iva = ivaExcluido ? 0.0 : subtotalConDescuento * AppConfig.getVatPercentage();
+        // El subtotalConDescuento ahora es la resta de ambos subtotales
+        double subtotalConDescuento = (subtotalGravable - descuento) + subtotalNoGravable;
+        
+        // ===== MODIFICACIÓN DE IVA =====
+        // El IVA se calcula SÓLO sobre el subtotal gravable (ya descontado)
+        double iva = ivaExcluido ? 0.0 : (subtotalGravable - descuento) * AppConfig.getVatPercentage();
+        
         double total = subtotalConDescuento + iva + propina; // Total en $
 
         // CALCULAR TOTAL PAGADO (NUEVO)
@@ -1250,7 +1273,17 @@ public class CapelliSalesWindow extends JFrame {
             ));
         }
 
-        double subtotal = serviciosAgregados.stream().mapToDouble(VentaServicio::getPrecio).sum();
+        // --- Lógica de cálculo replicada para enviar a validación ---
+        double subtotalGravable = 0.0;
+        double subtotalNoGravable = 0.0;
+        for (VentaServicio vs : serviciosAgregados) {
+            if (vs.getServicio().equals("Abono Manual Staff")) {
+                subtotalNoGravable += vs.getPrecio();
+            } else {
+                subtotalGravable += vs.getPrecio();
+            }
+        }
+        double subtotal = subtotalGravable + subtotalNoGravable;
 
         double propina = 0.0;
         try {
@@ -1259,11 +1292,17 @@ public class CapelliSalesWindow extends JFrame {
         }
 
         String tipoDesc = Objects.requireNonNull(descuentoComboBox.getSelectedItem()).toString();
-        double descuento = tipoDesc.equals("Promoción") ? subtotal * AppConfig.getPromoDiscountPercentage() : 0.0;
+        double descuento = 0.0;
+        if (tipoDesc.equals("Promoción")) {
+            descuento = subtotalGravable * AppConfig.getPromoDiscountPercentage();
+        }
 
-        double subtotalConDescuento = subtotal - descuento;
-        double iva = ivaExcluido ? 0.0 : subtotalConDescuento * AppConfig.getVatPercentage();
-        double totalEnDolares = subtotalConDescuento + iva + propina;
+        double subtotalConDescuentoGravable = subtotalGravable - descuento;
+        double iva = ivaExcluido ? 0.0 : subtotalConDescuentoGravable * AppConfig.getVatPercentage();
+        double totalEnDolares = subtotalConDescuentoGravable + subtotalNoGravable + iva + propina;
+        
+        // --- Fin de lógica replicada ---
+
 
         // NUEVO: Calcular total pagado
         double totalPagadoEnDolares = pagosAgregados.stream()
@@ -1271,6 +1310,8 @@ public class CapelliSalesWindow extends JFrame {
             .sum();
 
         // VALIDACIÓN MODIFICADA
+        // Se pasan los valores calculados (subtotal, descuento, iva, total)
+        // El validador (actualizado) sabrá cómo interpretarlos
         ValidationResult result = VentaValidator.validateVenta(
                 serviciosParaValidar,
                 subtotal,
@@ -1299,8 +1340,9 @@ public class CapelliSalesWindow extends JFrame {
         }
 
         // Validar descuento
+        // Pasamos el subtotal gravable para la validación de promoción
         ValidationResult descuentoResult = VentaValidator.validateDescuento(
-                tipoDesc, descuento, subtotal
+                tipoDesc, descuento, subtotalGravable 
         );
         result.merge(descuentoResult);
 
@@ -1352,7 +1394,7 @@ public class CapelliSalesWindow extends JFrame {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            // 1. GUARDAR LA VENTA (SIN DATOS DE PAGO)
+            // 1. GUARDAR LA VENTA (CON LOS TOTALES CORREGIDOS)
             // Se usa el String de la fecha en lugar de Timestamp
             String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
                     + "discount_amount, vat_amount, total, bcv_rate_at_sale, correlative_number) " 
@@ -1369,11 +1411,11 @@ public class CapelliSalesWindow extends JFrame {
                 // 3. Usar setString() para la fecha
                 pstmt.setString(2, saleDateSqlString); 
                 
-                pstmt.setDouble(3, subtotal); 
+                pstmt.setDouble(3, subtotal); // Subtotal total (Gravable + No Gravable)
                 pstmt.setString(4, tipoDesc); 
-                pstmt.setDouble(5, descuento); 
-                pstmt.setDouble(6, iva); 
-                pstmt.setDouble(7, totalEnDolares); 
+                pstmt.setDouble(5, descuento); // Descuento (solo de parte gravable)
+                pstmt.setDouble(6, iva); // IVA (solo de parte gravable)
+                pstmt.setDouble(7, totalEnDolares); // Total (calculado correctamente)
                 pstmt.setDouble(8, tasaBcv); // Tasa general de la venta
                 pstmt.setString(9, String.valueOf(correlativeToSave));
                 

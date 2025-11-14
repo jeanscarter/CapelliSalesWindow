@@ -129,6 +129,16 @@ public class PayrollService {
      */
     private double calculateCommissionForItem(String tName, int tId, String sName, String sCat, double price, Map<String, Double> ruleMap, boolean clientBroughtProduct) {
         
+        // ===== INICIO DE MODIFICACIÓN =====
+        // --- 0. REGLA DE PAGO MANUAL (Prioridad Máxima) ---
+        // Esta categoría se usa para registrar ingresos que se distribuyen
+        // manualmente (ej. efectivo) y no deben generar comisión automática.
+        if ("PAGO-MANUAL".equals(sCat)) {
+            return 0.0;
+        }
+        // ===== FIN DE MODIFICACIÓN =====
+        
+        
         // Definición de grupos de servicios especiales
         boolean isDepilacion = sName.equals("Cejas") || sName.equals("Bozo");
 
