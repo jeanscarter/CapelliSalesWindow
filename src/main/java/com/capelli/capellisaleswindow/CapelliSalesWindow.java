@@ -129,7 +129,7 @@ public class CapelliSalesWindow extends JFrame {
      * El 'monto' SIEMPRE se almacena en USD.
      */
     private record Pago(double monto, String moneda, String metodo, String destino, String referencia, double tasaBcv) {}
-    // --- FIN DE NUEVAS VARIABLES ---
+    // --- FIN NUEVAS VARIABLES ---
 
 
     public CapelliSalesWindow() {
@@ -171,23 +171,34 @@ public class CapelliSalesWindow extends JFrame {
         gbc.weightx = 1.0;
         gbc.weighty = 1.0;
 
+        // --- MODIFICACIÓN 1 (Layout): Ajustar pesos (weighty) ---
+        // Panel Izquierdo
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 1;
-        gbc.gridheight = 2;
+        gbc.gridheight = 2; // Ocupa 2 filas de alto
+        gbc.weightx = 1.0; // Ocupa su parte del ancho
+        gbc.weighty = 1.0; // Ocupa 100% del alto
         mainPanel.add(crearPanelIzquierdo(), gbc);
 
+        // Tabla (Top-Right)
         gbc.gridx = 1;
         gbc.gridy = 0;
         gbc.gridwidth = 1;
-        gbc.gridheight = 1;
+        gbc.gridheight = 1; // Ocupa 1 fila de alto
+        gbc.weightx = 1.0; // Ocupa su parte del ancho
+        gbc.weighty = 0.7; // 70% del espacio vertical para la tabla de servicios
         mainPanel.add(crearPanelTabla(), gbc);
 
+        // Pago (Bottom-Right)
         gbc.gridx = 1;
         gbc.gridy = 1;
         gbc.gridwidth = 1;
-        gbc.gridheight = 1;
+        gbc.gridheight = 1; // Ocupa 1 fila de alto
+        gbc.weightx = 1.0; // Ocupa su parte del ancho
+        gbc.weighty = 0.3; // 30% del espacio vertical para el panel de pago
         mainPanel.add(crearPanelDerechoInferior(), gbc);
+        // --- FIN MODIFICACIÓN 1 ---
 
         add(mainPanel);
         
@@ -882,7 +893,22 @@ public class CapelliSalesWindow extends JFrame {
         LOGGER.info("Servicio agregado a la venta: " + nombreEnTabla + ", Trabajadora: " + trabajadora + ", Precio: $" + precioFinal);
     
         actualizarTotales();
-    
+        
+        // --- MODIFICACIÓN 2 (Auto-Scroll): Desplazarse a la fila recién agregada ---
+        // SwingUtilities.invokeLater asegura que esto se ejecute después de que la tabla se actualice
+        SwingUtilities.invokeLater(() -> {
+            int lastRow = serviciosTable.getRowCount() - 1;
+            if (lastRow >= 0) {
+                // Convertir el índice del modelo al índice de la vista (en caso de que esté ordenado)
+                int viewRow = serviciosTable.convertRowIndexToView(lastRow);
+                // Hacer scroll para que la celda sea visible
+                serviciosTable.scrollRectToVisible(serviciosTable.getCellRect(viewRow, 0, true));
+                // Opcional: seleccionar la fila agregada
+                serviciosTable.setRowSelectionInterval(viewRow, viewRow);
+            }
+        });
+        // --- FIN MODIFICACIÓN 2 ---
+
         clienteProductoCheck.setSelected(false);
         String nextSelectedService = (String) serviciosComboBox.getSelectedItem();
          if (nextSelectedService != null) {
@@ -899,8 +925,10 @@ public class CapelliSalesWindow extends JFrame {
         int selectedRow = serviciosTable.getSelectedRow();
 
         if (selectedRow >= 0) {
-            serviciosAgregados.remove(selectedRow);
-            tableModel.removeRow(selectedRow);
+            // Convertir el índice de la vista al índice del modelo
+            int modelRow = serviciosTable.convertRowIndexToModel(selectedRow);
+            serviciosAgregados.remove(modelRow);
+            tableModel.removeRow(modelRow);
             actualizarTotales();
         } else {
             JOptionPane.showMessageDialog(this, "Por favor, seleccione un servicio de la tabla para eliminar.", "Ningún Servicio Seleccionado", JOptionPane.WARNING_MESSAGE);
@@ -919,11 +947,15 @@ public class CapelliSalesWindow extends JFrame {
             if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 2) {
                 int row = e.getFirstRow();
                 try {
+                    // Convertir el índice de la vista al índice del modelo
+                    int modelRow = serviciosTable.convertRowIndexToModel(row);
                     double nuevoPrecio = Double.parseDouble(tableModel.getValueAt(row, 2).toString().replace(",", "."));
-                    serviciosAgregados.get(row).setPrecio(nuevoPrecio);
+                    serviciosAgregados.get(modelRow).setPrecio(nuevoPrecio);
                     actualizarTotales();
                 } catch (NumberFormatException ex) {
                     JOptionPane.showMessageDialog(this, "Por favor, ingrese un número válido.", "Error", JOptionPane.ERROR_MESSAGE);
+                } catch (IndexOutOfBoundsException ioobe) {
+                     LOGGER.log(Level.WARNING, "Error de sincronización de tabla al editar precio", ioobe);
                 }
             }
         });
@@ -942,6 +974,7 @@ public class CapelliSalesWindow extends JFrame {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
+        gbc.weighty = 0.0; // --- MODIFICACIÓN 3 (Layout): Paneles superiores no deben crecer verticalmente ---
 
         // --- 1. Panel de Descuento y Propina (sin cambios) ---
         JPanel descuentoPanel = new JPanel(new BorderLayout());
@@ -998,7 +1031,7 @@ public class CapelliSalesWindow extends JFrame {
         panel.add(totalesPanel, gbc);
 
         // --- 3. Panel de AGREGAR PAGO (NUEVO) ---
-        JPanel pagoPanel = new JPanel(new MigLayout("wrap 4, fillx", "[right]10[grow,fill]20[right]10[grow,fill]"));
+        JPanel pagoPanel = new JPanel(new MigLayout("wrap 4, fillx, insets 5", "[right]10[grow,fill]20[right]10[grow,fill]")); // Reducir insets
         pagoPanel.setBorder(new TitledBorder("Agregar Pago"));
 
         // Moneda
@@ -1008,7 +1041,7 @@ public class CapelliSalesWindow extends JFrame {
         ButtonGroup monedaGroup = new ButtonGroup();
         monedaGroup.add(monedaBs);
         monedaGroup.add(monedaDolar);
-        JPanel monedaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel monedaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0)); // Reducir gaps
         monedaPanel.add(monedaDolar);
         monedaPanel.add(monedaBs);
         pagoPanel.add(monedaPanel);
@@ -1030,7 +1063,7 @@ public class CapelliSalesWindow extends JFrame {
         pagoPanel.add(agregarPagoBtn, "span 2, growx, wrap");
 
         // Paneles dinámicos (Pago Móvil y Transferencia $)
-        pagoMovilPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        pagoMovilPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0)); // Reducir gaps
         pagoMovilCapelliRadio = new JRadioButton("Capelli", true);
         pagoMovilRosaRadio = new JRadioButton("Rosa");
         pagoMovilDestinoGroup = new ButtonGroup();
@@ -1082,18 +1115,24 @@ public class CapelliSalesWindow extends JFrame {
         };
         pagosTable = new JTable(pagosTableModel);
         JScrollPane scrollPagos = new JScrollPane(pagosTable);
-        scrollPagos.setPreferredSize(new Dimension(400, 100)); // Altura preferida
+        // scrollPagos.setPreferredSize(new Dimension(400, 100)); // Quitar PreferredSize para que el layout decida
         scrollPagos.setBorder(new TitledBorder("Pagos Registrados"));
 
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weighty = 0.5; gbc.fill = GridBagConstraints.BOTH;
+        // --- MODIFICACIÓN 3 (Layout): Ajustar pesos (weighty) ---
+        // Dar a la tabla de pagos todo el espacio vertical restante
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
+        gbc.weighty = 1.0; // ¡Cambiado a 1.0! Esto hace que la tabla crezca.
+        gbc.fill = GridBagConstraints.BOTH;
         panel.add(scrollPagos, gbc);
+        // --- FIN MODIFICACIÓN 3 ---
 
         // --- 5. Botón de Facturar ---
         JButton facturarBtn = new JButton("Generar Factura");
         facturarBtn.setFont(new Font("Arial", Font.BOLD, 16));
         facturarBtn.addActionListener(e -> generarFactura());
         
-        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2; gbc.weighty = 0.0;
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
+        gbc.weighty = 0.0; // El botón no debe estirarse
         gbc.fill = GridBagConstraints.NONE;
         gbc.anchor = GridBagConstraints.CENTER;
         panel.add(facturarBtn, gbc);
@@ -1182,6 +1221,16 @@ public class CapelliSalesWindow extends JFrame {
         referenciaUsdField.setText("");
         
         actualizarTotales();
+        
+        // Auto-scroll para la tabla de pagos
+        SwingUtilities.invokeLater(() -> {
+            int lastRow = pagosTable.getRowCount() - 1;
+            if (lastRow >= 0) {
+                int viewRow = pagosTable.convertRowIndexToView(lastRow);
+                pagosTable.scrollRectToVisible(pagosTable.getCellRect(viewRow, 0, true));
+                pagosTable.setRowSelectionInterval(viewRow, viewRow);
+            }
+        });
     }
 
 
