@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
 import javax.swing.BorderFactory;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -23,6 +24,7 @@ import javax.swing.table.DefaultTableModel;
 import net.miginfocom.swing.MigLayout;
 import java.util.logging.Logger;
 import java.util.logging.Level;
+import java.util.Date;
 
 /**
  * Ventana de Dashboard para visualizar ventas y estadísticas.
@@ -71,7 +73,7 @@ public class SalesDashboardWindow extends JFrame {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 // Columnas 0, 5, 6, 7 son numéricas
-                if (columnIndex == 0) return Integer.class;
+                if (columnIndex == 0) return Object.class; // Cambiado a Object para permitir String o Int según el correlativo
                 if (columnIndex >= 5 && columnIndex <= 7) return String.class; // Formateadas como String
                 return String.class;
             }
@@ -108,15 +110,18 @@ public class SalesDashboardWindow extends JFrame {
 
     /**
      * Carga los datos de ventas desde la base de datos.
-     * CORREGIDO: Ahora usa la tabla 'trabajadoras' en lugar de 'employees'.
      */
     private void loadSalesData() {
         LOGGER.info("Cargando datos de ventas...");
         salesTableModel.setRowCount(0);
         
+        // CORREGIDO: 
+        // 1. Se obtiene s.correlative_number
+        // 2. Se obtiene s.sale_date crudo (sin strftime) para formatear en Java
         String sql = "SELECT " +
                      "    s.sale_id, " +
-                     "    strftime('%d/%m/%Y %H:%M', s.sale_date, 'localtime') as sale_date, " +
+                     "    s.correlative_number, " + // Traemos el correlativo
+                     "    s.sale_date, " +          // Traemos la fecha cruda de la BD
                      "    COALESCE(c.full_name, 'Cliente Genérico') as client_name, " +
                      "    COALESCE(ser.name, 'SERVICIO BORRADO') as service_name, " + 
                      "    si.client_brought_product, " +
@@ -135,6 +140,10 @@ public class SalesDashboardWindow extends JFrame {
         try (Connection conn = Database.connect();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
+             
+            // Formateadores de fecha
+            SimpleDateFormat dbFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            SimpleDateFormat uiFormat = new SimpleDateFormat("dd/MM/yyyy HH:mm");
 
             int rowCount = 0;
             while (rs.next()) {
@@ -145,9 +154,36 @@ public class SalesDashboardWindow extends JFrame {
                     serviceName += " (Cliente)";
                 }
                 
+                // Lógica para mostrar el Correlativo en lugar del ID interno
+                String correlativoStr = rs.getString("correlative_number");
+                Object idVentaMostrar;
+                if (correlativoStr != null && !correlativoStr.isEmpty()) {
+                    // Intentamos parsear a numero para que se ordene bien en la tabla
+                    try {
+                        idVentaMostrar = Integer.parseInt(correlativoStr);
+                    } catch (NumberFormatException e) {
+                        idVentaMostrar = correlativoStr;
+                    }
+                } else {
+                    // Fallback al ID interno si es una venta antigua sin correlativo
+                    idVentaMostrar = rs.getInt("sale_id");
+                }
+                
+                // Lógica para formatear la fecha correctamente en Java
+                String rawDate = rs.getString("sale_date");
+                String formattedDate = rawDate; // Por defecto la cruda
+                try {
+                    if (rawDate != null) {
+                        Date date = dbFormat.parse(rawDate);
+                        formattedDate = uiFormat.format(date);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warning("No se pudo parsear la fecha: " + rawDate);
+                }
+                
                 salesTableModel.addRow(new Object[]{
-                    rs.getInt("sale_id"),
-                    rs.getString("sale_date"),
+                    idVentaMostrar, // Columna 0: Ahora muestra el Correlativo
+                    formattedDate,  // Columna 1: Fecha formateada en Java
                     rs.getString("client_name"),
                     serviceName,
                     rs.getString("employee_name"),
@@ -180,7 +216,6 @@ public class SalesDashboardWindow extends JFrame {
 
     /**
      * Carga la trabajadora con más servicios realizados.
-     * CORREGIDO: Ahora usa la tabla 'trabajadoras' en lugar de 'employees'.
      */
     private void loadTopSeller() {
         LOGGER.info("Calculando trabajadora con más servicios...");

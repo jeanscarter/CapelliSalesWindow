@@ -15,8 +15,8 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.ActionEvent; 
 import java.awt.event.KeyEvent;
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -25,30 +25,26 @@ import java.sql.Statement;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.imageio.ImageIO;
 import javax.swing.event.TableModelEvent;
+
 import com.capelli.config.AppConfig;
 import com.capelli.config.ConfigManager;
 import com.capelli.database.ServiceDAO;
 import com.capelli.model.Service;
 import com.capelli.servicemanagement.ServiceManagementWindow;
-import java.io.InputStream;
-import java.util.Date; 
-import java.sql.Timestamp; 
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import com.capelli.validation.*;
 import com.capelli.payroll.CommissionManagementWindow;
 import com.capelli.payroll.PayrollWindow;
 import com.capelli.reports.FinancialReportWindow;
 
-import javax.swing.text.AbstractDocument;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DocumentFilter;
 import net.miginfocom.swing.MigLayout; 
 
 public class CapelliSalesWindow extends JFrame {
@@ -63,7 +59,6 @@ public class CapelliSalesWindow extends JFrame {
     private final List<String> metodosPagoBs = new ArrayList<>(Arrays.asList("TD", "TC", "Pago Movil", "Efectivo Bs"));
     private final List<String> metodosPagoUsd = new ArrayList<>(Arrays.asList("Efectivo $", "Transferencia"));
     
-    private final List<String> serviciosConMultiplesTrabajadoras = Arrays.asList(AppConfig.getMultipleWorkerServices());
     private double tasaBcv = AppConfig.getDefaultBcvRate();
 
     private boolean isDarkMode = true;
@@ -78,8 +73,7 @@ public class CapelliSalesWindow extends JFrame {
     private JComboBox<String> trabajadorasComboBox;
     private JComboBox<String> descuentoComboBox;
     
-    // --- CAMBIOS PROPINAS ---
-    private JTextField propinaField; // Ahora se usa para ingresar la propina individual
+    private JTextField propinaField;
     private JComboBox<String> propinaTrabajadoraComboBox;
     
     private JRadioButton monedaBs, monedaDolar;
@@ -87,7 +81,7 @@ public class CapelliSalesWindow extends JFrame {
     
     private JLabel subtotalLabel;
     private JLabel descuentoLabel;
-    private JLabel propinaLabelGUI; // Muestra el total de propinas
+    private JLabel propinaLabelGUI;
     private JLabel ivaLabel;
     private JLabel totalLabel;
 
@@ -114,7 +108,6 @@ public class CapelliSalesWindow extends JFrame {
     private JCheckBox clienteProductoCheck;
     private Map<String, Service> serviciosMap = new HashMap<>(); 
 
-    // --- VARIABLES PARA PAGOS MÚLTIPLES ---
     private DefaultTableModel pagosTableModel;
     private JTable pagosTable;
     private final List<Pago> pagosAgregados = new ArrayList<>();
@@ -124,16 +117,11 @@ public class CapelliSalesWindow extends JFrame {
 
     private record Pago(double monto, String moneda, String metodo, String destino, String referencia, double tasaBcv) {}
 
-    // --- NUEVAS VARIABLES PARA PROPINAS MÚLTIPLES ---
-    /**
-     * Record interno para almacenar temporalmente las propinas agregadas.
-     */
     private record Tip(String recipientName, double amount) {}
 
     private DefaultTableModel propinasTableModel;
     private JTable propinasTable;
     private final List<Tip> propinasAgregados = new ArrayList<>();
-    // ------------------------------------------------
 
     public CapelliSalesWindow() {
         super(AppConfig.getAppTitle());
@@ -169,79 +157,62 @@ public class CapelliSalesWindow extends JFrame {
 
         JPanel mainPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(10, 10, 10, 10);
+        gbc.insets = new Insets(5, 5, 5, 5); // Reducido el padding general
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 1.0;
-        gbc.weighty = 1.0;
 
-        // Panel Izquierdo
+        // Panel Izquierdo (Cliente y Servicios - Mantiene su tamaño)
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gbc.gridwidth = 1;
         gbc.gridheight = 2; 
-        gbc.weightx = 1.0; 
+        gbc.weightx = 0.35; // 35% del ancho
         gbc.weighty = 1.0; 
         mainPanel.add(crearPanelIzquierdo(), gbc);
 
-        // Tabla (Top-Right)
+        // Tabla (Top-Right) - Aumentado el peso vertical
         gbc.gridx = 1;
         gbc.gridy = 0;
-        gbc.gridwidth = 1;
         gbc.gridheight = 1; 
-        gbc.weightx = 1.0; 
-        gbc.weighty = 0.6; // Reducido un poco para dar espacio abajo
+        gbc.weightx = 0.65; // 65% del ancho
+        gbc.weighty = 0.65; // 65% del alto (MÁS GRANDE PARA VER LA TABLA)
         mainPanel.add(crearPanelTabla(), gbc);
 
-        // Pago (Bottom-Right)
+        // Pago (Bottom-Right) - Reducido el peso vertical
         gbc.gridx = 1;
         gbc.gridy = 1;
-        gbc.gridwidth = 1;
         gbc.gridheight = 1; 
-        gbc.weightx = 1.0; 
-        gbc.weighty = 0.4; // Aumentado para caber propinas y pagos
+        gbc.weightx = 0.65; 
+        gbc.weighty = 0.35; // 35% del alto
         mainPanel.add(crearPanelDerechoInferior(), gbc);
 
         add(mainPanel);
         
         setupKeyBindings();
 
-        // Listener para el campo "Agregar Propina" (para validación visual inmediata)
+        // Listeners
         propinaField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             ValidationHelper.resetFieldBorder(propinaField);
             try {
                 double propina = Double.parseDouble(propinaField.getText().replace(",", "."));
-                if (propina < 0) {
-                    ValidationHelper.markFieldAsError(propinaField);
-                }
+                if (propina < 0) ValidationHelper.markFieldAsError(propinaField);
             } catch (NumberFormatException e) {
-                if (!propinaField.getText().isEmpty()) {
-                    ValidationHelper.markFieldAsError(propinaField);
-                }
+                if (!propinaField.getText().isEmpty()) ValidationHelper.markFieldAsError(propinaField);
             }
         }));
 
-        // Listener para el campo "Agregar Pago"
         montoPagoField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
             ValidationHelper.resetFieldBorder(montoPagoField);
             try {
                 double monto = Double.parseDouble(montoPagoField.getText().replace(",", "."));
-                if (monto < 0) {
-                    ValidationHelper.markFieldAsError(montoPagoField);
-                }
+                if (monto < 0) ValidationHelper.markFieldAsError(montoPagoField);
             } catch (NumberFormatException e) {
-                if (!montoPagoField.getText().isEmpty()) {
-                    ValidationHelper.markFieldAsError(montoPagoField);
-                }
+                if (!montoPagoField.getText().isEmpty()) ValidationHelper.markFieldAsError(montoPagoField);
             }
         }));
 
         cedulaNumeroField.getDocument().addDocumentListener(new SimpleDocumentListener(this::validateCedulaInput));
         cedulaTipoComboBox.addActionListener(e -> validateCedulaInput());
     }
-    
-    // ... (Métodos loadApplicationSettings, setupKeyBindings, promptForCorrelativeChange, runBcvWorker igual que antes) ...
-    // [Para brevedad, asumo que el usuario copia los métodos estándar sin cambios si no los pongo, pero pidió la clase completa]
-    // Incluiré los métodos estándar para que sea "completa".
 
     private void loadApplicationSettings() {
         this.currentCorrelative = ConfigManager.getCurrentCorrelative();
@@ -276,9 +247,7 @@ public class CapelliSalesWindow extends JFrame {
         JPasswordField passwordField = new JPasswordField(20);
         int option = JOptionPane.showConfirmDialog(this, passwordField, "Ingrese Contraseña de Administrador", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
         
-        if (option != JOptionPane.OK_OPTION) {
-            return;
-        }
+        if (option != JOptionPane.OK_OPTION) return;
 
         String password = new String(passwordField.getPassword());
         if (!password.equals("capelli2024")) {
@@ -287,9 +256,7 @@ public class CapelliSalesWindow extends JFrame {
         }
 
         String newCorrStr = JOptionPane.showInputDialog(this, "Ingrese el NUEVO número correlativo:", currentCorrelative);
-        if (newCorrStr == null || newCorrStr.trim().isEmpty()) {
-            return;
-        }
+        if (newCorrStr == null || newCorrStr.trim().isEmpty()) return;
 
         try {
             int newCorrelative = Integer.parseInt(newCorrStr.trim());
@@ -300,9 +267,8 @@ public class CapelliSalesWindow extends JFrame {
             ConfigManager.setCorrelative(newCorrelative);
             loadApplicationSettings();
             JOptionPane.showMessageDialog(this, "Correlativo actualizado a: " + newCorrelative, "Éxito", JOptionPane.INFORMATION_MESSAGE);
-
         } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this, "Valor inválido. Debe ingresar solo números.", "Error de Formato", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Valor inválido.", "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -737,7 +703,6 @@ public class CapelliSalesWindow extends JFrame {
         }
 
         String cedula = tipoCi + "-" + numeroCi;
-
         ValidationResult result = ClienteValidator.validateCedula(cedula);
 
         if (!result.isValid()) {
@@ -829,16 +794,10 @@ public class CapelliSalesWindow extends JFrame {
                 String tipoCabello = clienteActual.getHairType();
                 switch (tipoCabello) {
                     case "Mediano":
-                        if (servicioCompleto.getPrice_medio() > 0) {
-                            precioFinal = servicioCompleto.getPrice_medio();
-                        }
+                        if (servicioCompleto.getPrice_medio() > 0) precioFinal = servicioCompleto.getPrice_medio();
                         break;
                     case "Largo":
-                        if (servicioCompleto.getPrice_largo() > 0) {
-                            precioFinal = servicioCompleto.getPrice_largo();
-                        }
-                        break;
-                    default: 
+                        if (servicioCompleto.getPrice_largo() > 0) precioFinal = servicioCompleto.getPrice_largo();
                         break;
                 }
             }
@@ -922,122 +881,128 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     /**
-     * Reconstruye el panel de pago para soportar múltiples pagos y múltiples propinas.
+     * Panel de Pago rediseñado para mayor optimización de espacio vertical.
      */
     private JPanel crearPanelDerechoInferior() {
-        JPanel panel = new JPanel(new GridBagLayout());
+        // Usamos MigLayout para mayor control.
+        // Estructura general: 
+        // - Columna 1: Gestión de Propinas (Arriba) + Descuento (Abajo)
+        // - Columna 2: Resumen (Totales)
+        // - Fila Siguiente: Agregar Pago (Compacto)
+        // - Fila Final: Tabla de Pagos (Ocupa el resto del espacio)
+        
+        JPanel panel = new JPanel(new MigLayout("fill, insets 5, wrap 1", "[grow, fill]", "[][][grow][]")); 
         panel.setBorder(new TitledBorder("Total y Pago"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        gbc.weighty = 0.0;
 
-        // --- 1. Panel de Descuento ---
-        JPanel descuentoPanel = new JPanel(new BorderLayout());
-        descuentoPanel.setBorder(new TitledBorder("Descuento"));
-        descuentoComboBox = new JComboBox<>(tiposDescuento.toArray(new String[0]));
-        descuentoComboBox.addActionListener(e -> actualizarTotales());
-        descuentoPanel.add(descuentoComboBox, BorderLayout.CENTER);
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(descuentoPanel, gbc);
-
-        // --- 2. Panel de Propina (MODIFICADO) ---
-        JPanel propinaPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 5", "[right]10[grow,fill]"));
+        // --- SECCIÓN SUPERIOR: Propinas/Descuento (Izq) + Resumen (Der) ---
+        JPanel topSection = new JPanel(new MigLayout("fill, insets 0", "[grow, fill]10[300!]", "[grow, fill]"));
+        
+        // Columna Izquierda (Propinas y Descuento apilados)
+        JPanel leftCol = new JPanel(new MigLayout("wrap 1, fillx, insets 0", "[grow, fill]", "[]5[]"));
+        
+        // 1. Panel de Propinas
+        JPanel propinaPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 5", "[right]5[grow,fill]"));
         propinaPanel.setBorder(new TitledBorder("Gestión de Propinas"));
-
-        // Fila 1: Destinatario
+        
         propinaPanel.add(new JLabel("Para:"));
         List<String> propinaDestinatarios = new ArrayList<>(trabajadorasNombres);
         propinaDestinatarios.add("Salón");
         propinaTrabajadoraComboBox = new JComboBox<>(propinaDestinatarios.toArray(new String[0]));
         propinaPanel.add(propinaTrabajadoraComboBox, "growx");
 
-        // Fila 2: Monto
         propinaPanel.add(new JLabel("Monto ($):"));
         propinaField = new JTextField("0.00");
         ((javax.swing.text.AbstractDocument) propinaField.getDocument()).setDocumentFilter(new NumericFilter());
         propinaPanel.add(propinaField, "growx");
 
-        // Fila 3: Botón Agregar
-        JButton agregarPropinaBtn = new JButton("Agregar Propina");
+        JButton agregarPropinaBtn = new JButton("Agregar");
         agregarPropinaBtn.addActionListener(e -> agregarPropina());
-        propinaPanel.add(agregarPropinaBtn, "span 2, growx");
+        propinaPanel.add(agregarPropinaBtn, "split 2, growx"); // Split para poner eliminar al lado
+        
+        JButton eliminarPropinaBtn = new JButton("Eliminar");
+        eliminarPropinaBtn.addActionListener(e -> eliminarPropina());
+        propinaPanel.add(eliminarPropinaBtn, "growx");
 
-        // Fila 4: Tabla de Propinas
         propinasTableModel = new DefaultTableModel(new String[]{"Destinatario", "Monto ($)"}, 0) {
              @Override public boolean isCellEditable(int row, int column) { return false; }
         };
         propinasTable = new JTable(propinasTableModel);
         JScrollPane scrollPropinas = new JScrollPane(propinasTable);
-        scrollPropinas.setPreferredSize(new Dimension(200, 80)); 
-        propinaPanel.add(scrollPropinas, "span 2, grow, h 80!");
+        scrollPropinas.setPreferredSize(new Dimension(150, 60)); // Altura reducida
+        propinaPanel.add(scrollPropinas, "span 2, grow, h 60!");
 
-        // Fila 5: Botón Eliminar
-        JButton eliminarPropinaBtn = new JButton("Eliminar Propina");
-        eliminarPropinaBtn.addActionListener(e -> eliminarPropina());
-        propinaPanel.add(eliminarPropinaBtn, "span 2, align right");
+        leftCol.add(propinaPanel);
 
-        gbc.gridx = 1; gbc.gridy = 0;
-        panel.add(propinaPanel, gbc);
+        // 2. Panel de Descuento (Debajo de propinas)
+        JPanel descuentoPanel = new JPanel(new MigLayout("insets 5, fillx", "[][grow,fill]"));
+        descuentoPanel.setBorder(new TitledBorder("Descuento"));
+        descuentoComboBox = new JComboBox<>(tiposDescuento.toArray(new String[0]));
+        descuentoComboBox.addActionListener(e -> actualizarTotales());
+        descuentoPanel.add(new JLabel("Tipo:"));
+        descuentoPanel.add(descuentoComboBox);
+        
+        leftCol.add(descuentoPanel);
+        
+        topSection.add(leftCol, "growy"); // Añadir columna izquierda
 
-        // --- 3. Panel de Resumen (Totales) ---
-        JPanel totalesPanel = new JPanel(new GridLayout(6, 1)); 
+        // 3. Panel de Resumen (A la derecha)
+        JPanel totalesPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 10", "[][]", "[]5[]5[]5[]10[]10[]")); 
         totalesPanel.setBorder(new TitledBorder("Resumen"));
+        
         subtotalLabel = new JLabel("Subtotal ($): 0.00");
         descuentoLabel = new JLabel("Descuento ($): 0.00");
         ivaLabel = new JLabel("IVA ($): 0.00");
         propinaLabelGUI = new JLabel("Propina ($): 0.00");
         totalLabel = new JLabel("Total ($): 0.00");
-        totalLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        montoRestanteLabel = new JLabel("Restante por Pagar ($): 0.00");
+        totalLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        montoRestanteLabel = new JLabel("Restante: 0.00");
         montoRestanteLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
         montoRestanteLabel.setForeground(Color.RED);
 
-        totalesPanel.add(subtotalLabel);
-        totalesPanel.add(descuentoLabel);
-        totalesPanel.add(ivaLabel);
-        totalesPanel.add(propinaLabelGUI);
-        totalesPanel.add(totalLabel);
-        totalesPanel.add(montoRestanteLabel);
+        totalesPanel.add(subtotalLabel, "span 2");
+        totalesPanel.add(descuentoLabel, "span 2");
+        totalesPanel.add(ivaLabel, "span 2");
+        totalesPanel.add(propinaLabelGUI, "span 2");
+        totalesPanel.add(new JSeparator(), "span 2, growx");
+        totalesPanel.add(totalLabel, "span 2");
+        totalesPanel.add(montoRestanteLabel, "span 2");
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
-        panel.add(totalesPanel, gbc);
+        topSection.add(totalesPanel, "growy, top"); // Añadir columna derecha (Resumen)
 
-        // --- 4. Panel de AGREGAR PAGO ---
-        JPanel pagoPanel = new JPanel(new MigLayout("wrap 4, fillx, insets 5", "[right]10[grow,fill]20[right]10[grow,fill]")); 
+        panel.add(topSection); // Agregar sección superior al panel principal
+
+        // --- SECCIÓN MEDIA: Agregar Pago (Compacto) ---
+        JPanel pagoPanel = new JPanel(new MigLayout("insets 0, gap 5, fillx", "[]5[]10[]5[100!]10[]5[grow,fill]10[]", "[]")); 
         pagoPanel.setBorder(new TitledBorder("Agregar Pago"));
 
-        // Moneda
-        pagoPanel.add(new JLabel("Moneda:"));
+        // Moneda (Compacto)
         monedaBs = new JRadioButton("Bs", true);
         monedaDolar = new JRadioButton("$");
         ButtonGroup monedaGroup = new ButtonGroup();
         monedaGroup.add(monedaBs);
         monedaGroup.add(monedaDolar);
-        JPanel monedaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0)); 
-        monedaPanel.add(monedaDolar);
-        monedaPanel.add(monedaBs);
-        pagoPanel.add(monedaPanel);
+        pagoPanel.add(monedaDolar);
+        pagoPanel.add(monedaBs);
 
         // Monto
         pagoPanel.add(new JLabel("Monto:"));
         montoPagoField = new JTextField("0.00");
         ((javax.swing.text.AbstractDocument) montoPagoField.getDocument()).setDocumentFilter(new NumericFilter());
-        pagoPanel.add(montoPagoField, "growx, wrap");
+        pagoPanel.add(montoPagoField);
 
         // Método
         pagoPanel.add(new JLabel("Método:"));
         pagoComboBox = new JComboBox<>(metodosPagoBs.toArray(new String[0]));
-        pagoPanel.add(pagoComboBox, "growx");
+        pagoPanel.add(pagoComboBox);
 
         // Botón Agregar
-        JButton agregarPagoBtn = new JButton("Agregar Pago");
+        JButton agregarPagoBtn = new JButton("Agregar");
         agregarPagoBtn.addActionListener(e -> agregarPago());
-        pagoPanel.add(agregarPagoBtn, "span 2, growx, wrap");
+        pagoPanel.add(agregarPagoBtn, "wrap");
 
-        // Paneles dinámicos (Pago Móvil y Transferencia $)
+        // Sub-panel dinámico para opciones extra (Pago Movil / Zelle)
+        JPanel dynamicPaymentOptions = new JPanel(new MigLayout("insets 0", "[]10[]"));
+        
         pagoMovilPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         pagoMovilCapelliRadio = new JRadioButton("Capelli", true);
         pagoMovilRosaRadio = new JRadioButton("Rosa");
@@ -1048,9 +1013,9 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.add(pagoMovilCapelliRadio);
         pagoMovilPanel.add(pagoMovilRosaRadio);
         pagoMovilPanel.setVisible(true);
-        pagoPanel.add(pagoMovilPanel, "span 4, growx");
+        dynamicPaymentOptions.add(pagoMovilPanel);
 
-        transferenciaUsdPanel = new JPanel(new MigLayout("wrap 2, insets 0", "[right]10[grow,fill]"));
+        transferenciaUsdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         transferenciaHotmailRadio = new JRadioButton("@hotmail", true);
         transferenciaGmailRadio = new JRadioButton("@Gmail");
         transferenciaIngridRadio = new JRadioButton("Ingrid");
@@ -1058,19 +1023,19 @@ public class CapelliSalesWindow extends JFrame {
         transferenciaUsdDestinoGroup.add(transferenciaHotmailRadio);
         transferenciaUsdDestinoGroup.add(transferenciaGmailRadio);
         transferenciaUsdDestinoGroup.add(transferenciaIngridRadio);
-        JPanel radioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        radioPanel.add(transferenciaHotmailRadio);
-        radioPanel.add(transferenciaGmailRadio);
-        radioPanel.add(transferenciaIngridRadio);
         transferenciaUsdPanel.add(new JLabel("Destino:"));
-        transferenciaUsdPanel.add(radioPanel, "growx");
-        referenciaUsdField = new JTextField();
+        transferenciaUsdPanel.add(transferenciaHotmailRadio);
+        transferenciaUsdPanel.add(transferenciaGmailRadio);
+        transferenciaUsdPanel.add(transferenciaIngridRadio);
+        referenciaUsdField = new JTextField(8);
         transferenciaUsdPanel.add(new JLabel("Ref:"));
-        transferenciaUsdPanel.add(referenciaUsdField, "growx");
+        transferenciaUsdPanel.add(referenciaUsdField);
         transferenciaUsdPanel.setVisible(false);
-        pagoPanel.add(transferenciaUsdPanel, "span 4, growx");
+        dynamicPaymentOptions.add(transferenciaUsdPanel);
 
-        // Listeners para el panel de pago
+        panel.add(pagoPanel);
+        panel.add(dynamicPaymentOptions); // Agregado justo debajo de los inputs principales
+
         ActionListener updateListener = e -> {
             actualizarMetodosPago();
             actualizarPanelesPago();
@@ -1079,11 +1044,8 @@ public class CapelliSalesWindow extends JFrame {
         monedaDolar.addActionListener(updateListener);
         pagoComboBox.addActionListener(e -> actualizarPanelesPago());
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
-        panel.add(pagoPanel, gbc);
 
-
-        // --- 5. Panel de TABLA DE PAGOS ---
+        // --- SECCIÓN INFERIOR: Tabla de Pagos (Grande) ---
         pagosTableModel = new DefaultTableModel(new String[]{"Monto", "Moneda", "Método"}, 0) {
              @Override
              public boolean isCellEditable(int row, int column) { return false; }
@@ -1092,21 +1054,15 @@ public class CapelliSalesWindow extends JFrame {
         JScrollPane scrollPagos = new JScrollPane(pagosTable);
         scrollPagos.setBorder(new TitledBorder("Pagos Registrados"));
 
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
-        gbc.weighty = 1.0; 
-        gbc.fill = GridBagConstraints.BOTH;
-        panel.add(scrollPagos, gbc);
+        // 'grow, pushy' hace que este componente tome todo el espacio vertical disponible sobrante
+        panel.add(scrollPagos, "grow, pushy, h 100:200:"); 
 
-        // --- 6. Botón de Facturar ---
+        // Botón Facturar
         JButton facturarBtn = new JButton("Generar Factura");
         facturarBtn.setFont(new Font("Arial", Font.BOLD, 16));
         facturarBtn.addActionListener(e -> generarFactura());
         
-        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
-        gbc.weighty = 0.0; 
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.CENTER;
-        panel.add(facturarBtn, gbc);
+        panel.add(facturarBtn, "center, gaptop 5");
 
         return panel;
     }
@@ -1265,7 +1221,6 @@ public class CapelliSalesWindow extends JFrame {
         
         double subtotal = subtotalGravable + subtotalNoGravable;
         
-        // Sumar propinas desde la lista
         double propina = propinasAgregados.stream()
             .mapToDouble(Tip::amount)
             .sum();
@@ -1275,7 +1230,6 @@ public class CapelliSalesWindow extends JFrame {
 
         if (tipoDesc.equals("Promoción")) {
             descuento = subtotalGravable * AppConfig.getPromoDiscountPercentage();
-            LOGGER.fine("Descuento por promoción (sobre subtotal gravable) aplicado: " + descuento);
         }
         
         double subtotalConDescuento = (subtotalGravable - descuento) + subtotalNoGravable;
@@ -1392,14 +1346,12 @@ public class CapelliSalesWindow extends JFrame {
             try {
                 dateSpinner.commitEdit(); 
                 saleDateUtil = (java.util.Date) dateSpinner.getValue();
-                LOGGER.info("Modo histórico: Usando fecha del spinner: " + saleDateUtil);
             } catch (java.text.ParseException e) {
                 LOGGER.log(Level.WARNING, "Error al 'parsear' la fecha del spinner, usando fecha actual", e);
                 saleDateUtil = new java.util.Date(); 
             }
         } else {
             saleDateUtil = new java.util.Date();
-            LOGGER.info("Modo estándar: Usando fecha actual: " + saleDateUtil);
         }
         
         java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -1409,7 +1361,6 @@ public class CapelliSalesWindow extends JFrame {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            // 1. GUARDAR LA VENTA
             String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
                     + "discount_amount, vat_amount, total, bcv_rate_at_sale, correlative_number) " 
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -1444,7 +1395,6 @@ public class CapelliSalesWindow extends JFrame {
                 }
             }
 
-            // 2. GUARDAR LOS ITEMS DE LA VENTA
             String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale, client_brought_product) "
                     + "VALUES (?, ?, ?, ?, ?)";
 
@@ -1462,11 +1412,9 @@ public class CapelliSalesWindow extends JFrame {
                     pstmt.addBatch();
                 }
 
-                int[] batchResults = pstmt.executeBatch();
-                LOGGER.info("Items de venta insertados: " + batchResults.length);
+                pstmt.executeBatch();
             }
 
-            // 3. GUARDAR LOS PAGOS
             String sqlPayments = "INSERT INTO sale_payments (sale_id, monto, moneda, metodo_pago, "
                     + "destino_pago, referencia_pago, tasa_bcv_al_pago) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?)";
@@ -1489,10 +1437,8 @@ public class CapelliSalesWindow extends JFrame {
                     pstmt.addBatch();
                 }
                 pstmt.executeBatch();
-                LOGGER.info("Pagos de venta insertados: " + pagosAgregados.size());
             }
 
-            // 4. GUARDAR PROPINAS
             if (!propinasAgregados.isEmpty()) {
                 String sqlTip = "INSERT INTO tips (sale_id, recipient_name, amount) VALUES (?, ?, ?)";
 
@@ -1503,25 +1449,18 @@ public class CapelliSalesWindow extends JFrame {
                         pstmt.setDouble(3, tip.amount());
                         pstmt.addBatch();
                     }
-                    int[] batchResults = pstmt.executeBatch();
-                    LOGGER.info("Propinas insertadas: " + batchResults.length);
+                    pstmt.executeBatch();
                 }
             }
             
             conn.commit();
 
-            LOGGER.info("Venta registrada exitosamente. ID: " + saleId);
-            
             int nextCorrelative = correlativeToSave + 1;
             ConfigManager.setCorrelative(nextCorrelative);
             loadApplicationSettings();
 
-            String mensajeExito = construirMensajeExito(saleId, totalEnDolares,
-                    totalPagadoEnDolares);
-            JOptionPane.showMessageDialog(this,
-                    mensajeExito,
-                    "✅ Factura Generada Exitosamente",
-                    JOptionPane.INFORMATION_MESSAGE);
+            String mensajeExito = construirMensajeExito(saleId, totalEnDolares, totalPagadoEnDolares);
+            JOptionPane.showMessageDialog(this, mensajeExito, "✅ Factura Generada Exitosamente", JOptionPane.INFORMATION_MESSAGE);
             limpiarVentana();
 
         } catch (SQLException e) {
@@ -1529,24 +1468,16 @@ public class CapelliSalesWindow extends JFrame {
             try {
                 if (conn != null) {
                     conn.rollback();
-                    LOGGER.info("Rollback ejecutado exitosamente");
                 }
             } catch (SQLException ex) {
                 LOGGER.log(Level.SEVERE, "Error al hacer rollback", ex);
             }
-            String mensajeError = "Error al registrar la venta en la base de datos:\n\n"
-                    + e.getMessage() + "\n\n"
-                    + "Por favor, verifique los datos e intente nuevamente.";
-            JOptionPane.showMessageDialog(this,
-                    mensajeError,
-                    "❌ Error de Transacción",
-                    JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Error al registrar la venta en la base de datos:\n\n" + e.getMessage(), "❌ Error de Transacción", JOptionPane.ERROR_MESSAGE);
         } finally {
             try {
                 if (conn != null) {
                     conn.setAutoCommit(true);
                     conn.close();
-                    LOGGER.fine("Conexión a BD cerrada");
                 }
             } catch (SQLException ex) {
                 LOGGER.log(Level.SEVERE, "Error al cerrar conexión", ex);
@@ -1564,11 +1495,8 @@ public class CapelliSalesWindow extends JFrame {
             ResultSet rs = pstmt.executeQuery();
     
             if (rs.next()) {
-                int serviceId = rs.getInt("service_id");
-                LOGGER.fine("Service ID encontrado: " + serviceId + " para servicio: " + originalServiceName);
-                return serviceId;
+                return rs.getInt("service_id");
             } else {
-                LOGGER.severe("Servicio no encontrado en BD: " + originalServiceName);
                 throw new SQLException("Servicio no encontrado en la base de datos: " + originalServiceName);
             }
         }
@@ -1580,9 +1508,7 @@ public class CapelliSalesWindow extends JFrame {
                 return t.getId(); 
             }
         }
-
-        throw new SQLException("Trabajadora no encontrada: " + nombreCompleto 
-                + " (Error: no se encontró en la lista 'trabajadorasList' de la aplicación)");
+        throw new SQLException("Trabajadora no encontrada: " + nombreCompleto);
     }
     
     private String construirMensajeExito(long saleId, double total, double montoPagado) {
@@ -1592,29 +1518,15 @@ public class CapelliSalesWindow extends JFrame {
         mensaje.append("ID de Venta: ").append(saleId).append("\n");
         mensaje.append("N° Factura: ").append(currentCorrelative).append("\n");
         mensaje.append("───────────────────────────────────\n");
-
         mensaje.append("Total: $").append(currencyFormat.format(total)).append("\n");
         mensaje.append("Pagado: $").append(currencyFormat.format(montoPagado)).append("\n");
-
         double vuelto = montoPagado - total;
         if (vuelto > 0.01) { 
             mensaje.append("Vuelto: $").append(currencyFormat.format(vuelto)).append("\n");
         }
-
         mensaje.append("═══════════════════════════════════\n");
         mensaje.append("\n¡Gracias por usar el sistema Capelli!");
-
         return mensaje.toString();
-    }
-
-
-    private Service obtenerServicioPorNombre(String nombre) {
-        Service service = serviciosMap.get(nombre);
-        if (service == null) {
-            LOGGER.log(Level.SEVERE, "Servicio no encontrado en el Map: " + nombre);
-            JOptionPane.showMessageDialog(this, "Error: Servicio '" + nombre + "' no encontrado en la caché local.", "Error Interno", JOptionPane.ERROR_MESSAGE);
-        }
-        return service;
     }
 
     private void limpiarVentana() {
@@ -1649,26 +1561,18 @@ public class CapelliSalesWindow extends JFrame {
         }
 
         descuentoComboBox.setSelectedIndex(0);
-        
         monedaBs.setSelected(true);
         actualizarMetodosPago();
         actualizarPanelesPago(); 
-        
         actualizarTotales();
     }
 
     private void toggleIVA() {
         ivaExcluido = !ivaExcluido; 
         if (ivaExcluido) {
-            JOptionPane.showMessageDialog(this, 
-                "IVA (" + (AppConfig.getVatPercentage() * 100) + "%) Excluido para ESTA factura.", 
-                "Modo Sin IVA", 
-                JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "IVA (" + (AppConfig.getVatPercentage() * 100) + "%) Excluido para ESTA factura.", "Modo Sin IVA", JOptionPane.WARNING_MESSAGE);
         } else {
-            JOptionPane.showMessageDialog(this, 
-                "IVA (" + (AppConfig.getVatPercentage() * 100) + "%) Incluido para ESTA factura.", 
-                "Modo Con IVA", 
-                JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, "IVA (" + (AppConfig.getVatPercentage() * 100) + "%) Incluido para ESTA factura.", "Modo Con IVA", JOptionPane.INFORMATION_MESSAGE);
         }
         actualizarTotales(); 
     }
@@ -1676,7 +1580,6 @@ public class CapelliSalesWindow extends JFrame {
     private void actualizarPanelesPago() {
         String selectedMethod = (String) pagoComboBox.getSelectedItem();
         boolean esBs = monedaBs.isSelected();
-        
         pagoMovilPanel.setVisible(esBs && "Pago Movil".equals(selectedMethod));
         transferenciaUsdPanel.setVisible(!esBs && "Transferencia".equals(selectedMethod));
     }
@@ -1684,25 +1587,19 @@ public class CapelliSalesWindow extends JFrame {
     public static void main(String[] args) throws SQLException {
         LOGGER.info("=== INICIANDO APLICACIÓN CAPELLI ===");
         AppConfig.printConfiguration();
-
         Database.initialize();
-
         try {
             if (AppConfig.isDarkModeDefault()) {
                 UIManager.setLookAndFeel(new FlatDarkLaf());
-                LOGGER.info("Tema oscuro aplicado");
             } else {
                 UIManager.setLookAndFeel(new FlatLightLaf());
-                LOGGER.info("Tema claro aplicado");
             }
         } catch (Exception ex) {
             LOGGER.log(Level.SEVERE, "Error al inicializar Look and Feel", ex);
         }
-
         SwingUtilities.invokeLater(() -> {
             CapelliSalesWindow window = new CapelliSalesWindow();
             window.setVisible(true);
-            LOGGER.info("Ventana principal mostrada");
         });
     }
 }
