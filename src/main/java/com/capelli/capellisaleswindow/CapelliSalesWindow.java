@@ -34,7 +34,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.imageio.ImageIO;
 import javax.swing.event.TableModelEvent;
-
 import com.capelli.config.AppConfig;
 import com.capelli.config.ConfigManager;
 import com.capelli.database.ServiceDAO;
