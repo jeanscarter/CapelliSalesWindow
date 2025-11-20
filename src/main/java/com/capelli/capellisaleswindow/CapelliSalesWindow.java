@@ -994,10 +994,14 @@ public class CapelliSalesWindow extends JFrame {
         pagoComboBox = new JComboBox<>(metodosPagoBs.toArray(new String[0]));
         pagoPanel.add(pagoComboBox);
 
-        // Botón Agregar
+        // Botones de Acción
         JButton agregarPagoBtn = new JButton("Agregar");
         agregarPagoBtn.addActionListener(e -> agregarPago());
-        pagoPanel.add(agregarPagoBtn, "wrap");
+        pagoPanel.add(agregarPagoBtn, "split 2, growx"); // 'split 2' permite poner el siguiente botón al lado
+
+        JButton eliminarPagoBtn = new JButton("Eliminar");
+        eliminarPagoBtn.addActionListener(e -> eliminarPago());
+        pagoPanel.add(eliminarPagoBtn, "growx, wrap");
 
         // Sub-panel dinámico para opciones extra (Pago Movil / Zelle)
         JPanel dynamicPaymentOptions = new JPanel(new MigLayout("insets 0", "[]10[]"));
@@ -1203,6 +1207,19 @@ public class CapelliSalesWindow extends JFrame {
                 pagosTable.setRowSelectionInterval(viewRow, viewRow);
             }
         });
+    }
+    
+    private void eliminarPago() {
+        int selectedRow = pagosTable.getSelectedRow();
+
+        if (selectedRow >= 0) {
+            int modelRow = pagosTable.convertRowIndexToModel(selectedRow);
+            pagosAgregados.remove(modelRow);
+            pagosTableModel.removeRow(modelRow);
+            actualizarTotales();
+        } else {
+            JOptionPane.showMessageDialog(this, "Por favor, seleccione un pago de la tabla para eliminar.", "Ningún Pago Seleccionado", JOptionPane.WARNING_MESSAGE);
+        }
     }
 
     private void actualizarTotales() {
