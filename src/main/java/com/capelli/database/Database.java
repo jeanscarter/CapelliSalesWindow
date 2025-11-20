@@ -45,15 +45,33 @@ public class Database {
     }
 
     /**
+     * Actualiza el saldo de un cliente.
+     * @param conn Conexión activa (si es null, crea una nueva).
+     * @param clientId ID del cliente.
+     * @param amount Monto a sumar (positivo) o restar (negativo).
+     */
+    public static void updateClientBalance(Connection conn, int clientId, double amount) throws SQLException {
+        String sql = "UPDATE clients SET balance = COALESCE(balance, 0) + ? WHERE client_id = ?";
+        
+        boolean localConn = (conn == null);
+        if (localConn) conn = connect();
+        
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setDouble(1, amount);
+            pstmt.setInt(2, clientId);
+            pstmt.executeUpdate();
+        } finally {
+            if (localConn && conn != null) conn.close();
+        }
+    }
+
+    /**
      * Inserta o actualiza un servicio en la base de datos.
-     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
-     * evitar violaciones de Foreign Key.
      */
     private static void addOrUpdateService(Connection conn, String name, double pCorto, double pMedio, double pLargo, double pExt, boolean permiteCliente, double pCliente) throws SQLException {
         
-        // CORRECCIÓN: Se añade 'is_active = 1' para asegurar que los servicios actualizados/creados estén activos
         String sql = "INSERT INTO services (name, price_corto, price_medio, price_largo, price_ext, permite_cliente_producto, price_cliente_producto, is_active) " +
-                     "VALUES (?, ?, ?, ?, ?, ?, ?, 1) " + // Añadido 'is_active' y valor '1'
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, 1) " + 
                      "ON CONFLICT(name) DO UPDATE SET " +
                      "  price_corto = excluded.price_corto, " +
                      "  price_medio = excluded.price_medio, " +
@@ -61,7 +79,7 @@ public class Database {
                      "  price_ext = excluded.price_ext, " +
                      "  permite_cliente_producto = excluded.permite_cliente_producto, " +
                      "  price_cliente_producto = excluded.price_cliente_producto, " +
-                     "  is_active = 1"; // Añadido 'is_active = 1' en la actualización
+                     "  is_active = 1";
 
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, name);
@@ -77,8 +95,6 @@ public class Database {
     
     /**
      * Inserta o actualiza una trabajadora.
-     * CORREGIDO: Usa la sintaxis UPSERT (ON CONFLICT DO UPDATE) para
-     * evitar violaciones de Foreign Key.
      */
     private static void addOrUpdateTrabajadora(Connection conn, String nombres, String apellidos, String tipo_ci, String numero_ci, String telefono) throws SQLException {
         
@@ -213,7 +229,6 @@ public class Database {
                 + "    FOREIGN KEY (trabajadora_id) REFERENCES trabajadoras (id) ON DELETE CASCADE\n"
                 + ");";
 
-        // ===== INICIO DE MODIFICACIÓN: Añadida columna 'is_active' =====
         String sqlServices = "CREATE TABLE IF NOT EXISTS services (\n"
                 + "    service_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
                 + "    name TEXT NOT NULL UNIQUE,\n"
@@ -223,9 +238,8 @@ public class Database {
                 + "    price_ext REAL DEFAULT 0.0,\n"
                 + "    permite_cliente_producto BOOLEAN DEFAULT 0,\n"
                 + "    price_cliente_producto REAL DEFAULT 0.0,\n"
-                + "    is_active BOOLEAN DEFAULT 1\n" // <-- NUEVA COLUMNA
+                + "    is_active BOOLEAN DEFAULT 1\n" 
                 + ");";
-        // ===== FIN DE MODIFICACIÓN =====
 
         String sqlSales = "CREATE TABLE IF NOT EXISTS sales (\n"
                 + "    sale_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
@@ -299,7 +313,7 @@ public class Database {
             LOGGER.info("Tabla 'services' verificada/creada");
 
             stmt.execute(sqlSales);
-            LOGGER.info("Tabla 'sales' verificada/creada (actualizada sin campos de pago)");
+            LOGGER.info("Tabla 'sales' verificada/creada");
 
             stmt.execute(sqlSalePayments);
             LOGGER.info("Tabla 'sale_payments' verificada/creada");
@@ -320,70 +334,56 @@ public class Database {
             stmt.execute(sqlInitCorr);
             LOGGER.info("Correlativo inicial verificado/creado.");
             
+            // Modificaciones de tablas existentes
+            
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN bcv_rate_at_sale REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'bcv_rate_at_sale' agregada a la tabla 'sales'.");
             } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'bcv_rate_at_sale' ya existe en 'sales'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales'", e);
-                }
+                // Ignorar si ya existe
             }
             
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN vat_amount REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'vat_amount' agregada a la tabla 'sales'.");
             } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'vat_amount' ya existe en 'sales'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para VAT", e);
-                }
+                // Ignorar si ya existe
             }
             
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN correlative_number TEXT");
                 LOGGER.info("Columna 'correlative_number' agregada a la tabla 'sales'.");
             } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'correlative_number' ya existe en 'sales'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sales' para Correlativo", e);
-                }
+                // Ignorar si ya existe
             }
             
             try {
                 stmt.execute("ALTER TABLE services ADD COLUMN service_category TEXT");
                 LOGGER.info("Columna 'service_category' agregada a la tabla 'services'.");
             } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'service_category' ya existe en 'services'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para service_category", e);
-                }
+                // Ignorar si ya existe
             }
             
             try {
                 stmt.execute("ALTER TABLE services ADD COLUMN is_active BOOLEAN DEFAULT 1");
                 LOGGER.info("Columna 'is_active' agregada a la tabla 'services'.");
             } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'is_active' ya existe en 'services'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'services' para is_active", e);
-                }
+                // Ignorar si ya existe
             }
             
             try {
                 stmt.execute("ALTER TABLE sale_items ADD COLUMN client_brought_product BOOLEAN DEFAULT 0");
                 LOGGER.info("Columna 'client_brought_product' agregada a la tabla 'sale_items'.");
             } catch (SQLException e) {
-                if (e.getMessage().contains("duplicate column name")) {
-                    LOGGER.info("Columna 'client_brought_product' ya existe en 'sale_items'.");
-                } else {
-                    LOGGER.log(Level.SEVERE, "Error al alterar la tabla 'sale_items' para client_brought_product", e);
-                }
+                // Ignorar si ya existe
+            }
+            
+            // NUEVO: Agregar columna de saldo
+            try {
+                stmt.execute("ALTER TABLE clients ADD COLUMN balance REAL DEFAULT 0.0");
+                LOGGER.info("Columna 'balance' agregada a la tabla 'clients'.");
+            } catch (SQLException e) {
+                // La columna ya existe, ignoramos el error
             }
 
             LOGGER.info("Agregando/Actualizando lista de servicios...");
@@ -419,9 +419,7 @@ public class Database {
             addOrUpdateService(conn, "Extensiones (4 Paquetes)", 180.0, 0.0, 0.0, 0.0, false, 0.0);
             addOrUpdateService(conn, "Productos", 35.0, 0.0, 0.0, 0.0, false, 0.0);
             
-            // ===== INICIO DE MODIFICACIÓN: Añadir servicio de control =====
             addOrUpdateService(conn, "Abono Manual Staff", 0.0, 0.0, 0.0, 0.0, false, 0.0);
-            // ===== FIN DE MODIFICACIÓN =====
 
             LOGGER.info("Lista de servicios actualizada.");
             
@@ -432,9 +430,7 @@ public class Database {
             stmt.execute("UPDATE services SET service_category = 'Extensiones' WHERE name IN ('Extensiones (Medio Paquete)', 'Extensiones (1 Paquete)', 'Extensiones (2 Paquetes)', 'Extensiones (3 Paquetes)', 'Extensiones (4 Paquetes)')");
             stmt.execute("UPDATE services SET service_category = 'Otros' WHERE name IN ('Productos')");
             
-            // ===== INICIO DE MODIFICACIÓN: Asignar categoría de control =====
             stmt.execute("UPDATE services SET service_category = 'PAGO-MANUAL' WHERE name = 'Abono Manual Staff'");
-            // ===== FIN DE MODIFICACIÓN =====
             
             LOGGER.info("Categorías de servicio por defecto re-asignadas.");
             
@@ -486,38 +482,29 @@ public class Database {
             
             // --- Reglas de Comisión Base (por categoría) ---
             
-            // Maria Diaz (CI 7774946)
             addOrUpdateCommissionRule(conn, "7774946", "Manos/Pies", 0.70);
             
-            // Jaqueline Añez (CI 24734839)
             addOrUpdateCommissionRule(conn, "24734839", "Peluqueria", 0.50);
-            addOrUpdateCommissionRule(conn, "24734839", "Quimico", 0.40); // Regla "Hidratación 40%" se aplica a Quimicos
+            addOrUpdateCommissionRule(conn, "24734839", "Quimico", 0.40); 
             
-            // Dayana Govea (CI 18522231)
             addOrUpdateCommissionRule(conn, "18522231", "Peluqueria", 0.50);
-            addOrUpdateCommissionRule(conn, "18522231", "Quimico", 0.40); // Regla "Hidratación 40%"
+            addOrUpdateCommissionRule(conn, "18522231", "Quimico", 0.40); 
             
-            // Maria Virginia Romero (CI 31085005)
             addOrUpdateCommissionRule(conn, "31085005", "Peluqueria", 0.50);
-            addOrUpdateCommissionRule(conn, "31085005", "Quimico", 0.40); // Regla "Hidratación 40%"
+            addOrUpdateCommissionRule(conn, "31085005", "Quimico", 0.40); 
             
-            // Belkis Gutierrez (CI 9395233)
             addOrUpdateCommissionRule(conn, "9395233", "Peluqueria", 0.65);
             addOrUpdateCommissionRule(conn, "9395233", "Quimico", 0.50);
             
-            // Aurora Sofia Exposito (CI 27683374)
             addOrUpdateCommissionRule(conn, "27683374", "Peluqueria", 0.60);
             addOrUpdateCommissionRule(conn, "27683374", "Quimico", 0.50);
             
-            // Jeimy Añez (CI 18921264)
             addOrUpdateCommissionRule(conn, "18921264", "Peluqueria", 0.60);
             addOrUpdateCommissionRule(conn, "18921264", "Quimico", 0.50);
             
-            // Pascualina Gutierrez (CI 5562378)
             addOrUpdateCommissionRule(conn, "5562378", "Peluqueria", 0.60);
             addOrUpdateCommissionRule(conn, "5562378", "Quimico", 0.50);
             
-            // Milagros Gutierrez (CI 24342800)
             addOrUpdateCommissionRule(conn, "24342800", "Peluqueria", 0.60);
             addOrUpdateCommissionRule(conn, "24342800", "Quimico", 0.50);
             

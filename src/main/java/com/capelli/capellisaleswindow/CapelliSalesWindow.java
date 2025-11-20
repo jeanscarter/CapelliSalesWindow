@@ -712,28 +712,33 @@ public class CapelliSalesWindow extends JFrame {
 
         ValidationHelper.resetFieldBorder(cedulaNumeroField);
 
-        String sql = "SELECT client_id, full_name, hair_type FROM clients WHERE cedula = ?";
+        // MODIFICADO: Se añade 'balance' a la consulta
+        String sql = "SELECT client_id, full_name, hair_type, balance FROM clients WHERE cedula = ?";
         try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, cedula);
             ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
+                double saldo = rs.getDouble("balance");
                 clienteActual = new ClienteActivo(
                         rs.getInt("client_id"),
                         cedula,
                         rs.getString("full_name"),
-                        rs.getString("hair_type") 
+                        rs.getString("hair_type"),
+                        saldo // Nuevo campo en ClienteActivo (debes actualizar esa clase)
                 );
 
                 String hairTypeInfo = clienteActual.getHairType();
-                String infoCliente = "Nombre: " + clienteActual.getNombre()
-                        + " (Cabello: " + (hairTypeInfo != null && !hairTypeInfo.isEmpty() ? hairTypeInfo : "No definido") + ")";
+                String infoCliente = "<html>Nombre: " + clienteActual.getNombre()
+                        + "<br>Cabello: " + (hairTypeInfo != null && !hairTypeInfo.isEmpty() ? hairTypeInfo : "No definido")
+                        + "<br><font color='green'>Saldo a Favor: $" + new DecimalFormat("#,##0.00").format(saldo) + "</font></html>";
+                
                 nombreClienteLabel.setText(infoCliente);
 
                 LOGGER.info("Cliente cargado: " + clienteActual.getNombre());
                 JOptionPane.showMessageDialog(this,
-                        "Cliente cargado: " + clienteActual.getNombre(),
+                        "Cliente cargado: " + clienteActual.getNombre() + "\nSaldo disponible: $" + saldo,
                         "Éxito",
                         JOptionPane.INFORMATION_MESSAGE);
             } else {
@@ -1468,6 +1473,27 @@ public class CapelliSalesWindow extends JFrame {
                     pstmt.executeBatch();
                 }
             }
+
+            // ===== INICIO MODIFICACIÓN SALDO =====
+            double vuelto = totalPagadoEnDolares - totalEnDolares;
+            boolean abonoSaldoExitoso = false;
+
+            // Si hay vuelto y hay cliente seleccionado (tolerancia de 0.01)
+            if (vuelto > 0.01 && clienteActual != null) {
+                String msg = String.format("Hay un vuelto de $%.2f.\n¿Desea abonarlo al saldo a favor de %s?", 
+                                           vuelto, clienteActual.getNombre());
+                
+                int respuesta = JOptionPane.showConfirmDialog(this, msg, "Gestionar Vuelto", 
+                                                              JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                
+                if (respuesta == JOptionPane.YES_OPTION) {
+                    // Actualizar saldo usando la conexión abierta de la transacción
+                    Database.updateClientBalance(conn, clienteActual.getId(), vuelto);
+                    abonoSaldoExitoso = true;
+                    LOGGER.info("Abonado vuelto de $" + vuelto + " al cliente ID " + clienteActual.getId());
+                }
+            }
+            // ===== FIN MODIFICACIÓN SALDO =====
             
             conn.commit();
 
@@ -1475,7 +1501,22 @@ public class CapelliSalesWindow extends JFrame {
             ConfigManager.setCorrelative(nextCorrelative);
             loadApplicationSettings();
 
-            String mensajeExito = construirMensajeExito(saleId, totalEnDolares, totalPagadoEnDolares);
+            // Modificamos el mensaje de éxito para reflejar si se abonó
+            String mensajeExito;
+            if (abonoSaldoExitoso) {
+                // Construimos mensaje personalizado
+                StringBuilder sb = new StringBuilder();
+                sb.append("Venta registrada exitosamente\n\n");
+                sb.append("N° Factura: ").append(currentCorrelative).append("\n");
+                sb.append("Total: $").append(currencyFormat.format(totalEnDolares)).append("\n");
+                sb.append("Pagado: $").append(currencyFormat.format(totalPagadoEnDolares)).append("\n");
+                sb.append(" Abonado a Cuenta: $").append(currencyFormat.format(vuelto)).append(" \n");
+                mensajeExito = sb.toString();
+            } else {
+                // Mensaje estándar (vuelto en efectivo)
+                mensajeExito = construirMensajeExito(saleId, totalEnDolares, totalPagadoEnDolares);
+            }
+
             JOptionPane.showMessageDialog(this, mensajeExito, "✅ Factura Generada Exitosamente", JOptionPane.INFORMATION_MESSAGE);
             limpiarVentana();
 
