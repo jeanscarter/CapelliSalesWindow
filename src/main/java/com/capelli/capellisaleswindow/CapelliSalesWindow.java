@@ -49,6 +49,12 @@ import net.miginfocom.swing.MigLayout;
 public class CapelliSalesWindow extends JFrame {
 
     private static final Logger LOGGER = Logger.getLogger(CapelliSalesWindow.class.getName());
+    
+    // --- VARIABLES PARA EDICIÓN ---
+    private long currentEditingSaleId = -1; // -1 indica nueva venta
+    private boolean isEditMode = false;
+    // ------------------------------
+
     private boolean ivaExcluido = false; 
     private Map<String, Double> preciosServicios = new HashMap<>();
     private List<String> trabajadorasNombres = new ArrayList<>();
@@ -84,10 +90,15 @@ public class CapelliSalesWindow extends JFrame {
     private JLabel ivaLabel;
     private JLabel totalLabel;
 
+    // Paneles de Pago Dinámicos
     private JRadioButton pagoMovilCapelliRadio;
     private JRadioButton pagoMovilRosaRadio;
     private ButtonGroup pagoMovilDestinoGroup;
     private JPanel pagoMovilPanel;
+    
+    // Panel TD (NUEVO)
+    private JPanel tdPanel;
+    private JTextField facturaTdField;
     
     private JPanel transferenciaUsdPanel;
     private JRadioButton transferenciaHotmailRadio, transferenciaGmailRadio, transferenciaIngridRadio;
@@ -122,6 +133,7 @@ public class CapelliSalesWindow extends JFrame {
     private JTable propinasTable;
     private final List<Tip> propinasAgregados = new ArrayList<>();
 
+    // --- CONSTRUCTOR PRINCIPAL (NUEVA VENTA) ---
     public CapelliSalesWindow() {
         super(AppConfig.getAppTitle());
 
@@ -136,6 +148,7 @@ public class CapelliSalesWindow extends JFrame {
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error al cargar icono de aplicación", e);
         }
+        
         runBcvWorker();
 
         tableModel = new DefaultTableModel(new String[]{"Servicio", "Trabajador(a)", "Precio ($)"}, 0) {
@@ -156,32 +169,32 @@ public class CapelliSalesWindow extends JFrame {
 
         JPanel mainPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5); // Reducido el padding general
+        gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 1.0;
 
-        // Panel Izquierdo (Cliente y Servicios - Mantiene su tamaño)
+        // Panel Izquierdo
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridheight = 2; 
-        gbc.weightx = 0.35; // 35% del ancho
+        gbc.weightx = 0.35; 
         gbc.weighty = 1.0; 
         mainPanel.add(crearPanelIzquierdo(), gbc);
 
-        // Tabla (Top-Right) - Aumentado el peso vertical
+        // Tabla (Top-Right)
         gbc.gridx = 1;
         gbc.gridy = 0;
         gbc.gridheight = 1; 
-        gbc.weightx = 0.65; // 65% del ancho
-        gbc.weighty = 0.65; // 65% del alto (MÁS GRANDE PARA VER LA TABLA)
+        gbc.weightx = 0.65; 
+        gbc.weighty = 0.65; 
         mainPanel.add(crearPanelTabla(), gbc);
 
-        // Pago (Bottom-Right) - Reducido el peso vertical
+        // Pago (Bottom-Right)
         gbc.gridx = 1;
         gbc.gridy = 1;
         gbc.gridheight = 1; 
         gbc.weightx = 0.65; 
-        gbc.weighty = 0.35; // 35% del alto
+        gbc.weighty = 0.35; 
         mainPanel.add(crearPanelDerechoInferior(), gbc);
 
         add(mainPanel);
@@ -213,10 +226,173 @@ public class CapelliSalesWindow extends JFrame {
         cedulaTipoComboBox.addActionListener(e -> validateCedulaInput());
     }
 
+    // --- NUEVO CONSTRUCTOR SECUNDARIO (MODO EDICIÓN) ---
+    public CapelliSalesWindow(long saleIdToEdit) {
+        this(); // Llama al constructor principal para inicializar toda la UI
+        this.currentEditingSaleId = saleIdToEdit;
+        this.isEditMode = true;
+        this.setTitle(AppConfig.getAppTitle() + " - EDITAR VENTA #" + saleIdToEdit);
+        
+        // Cambiar comportamiento al cerrar: solo cerrar la ventana, no salir de la app
+        this.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        
+        // Cargar datos de la venta existente
+        SwingUtilities.invokeLater(() -> cargarVentaParaEdicion(saleIdToEdit));
+    }
+
+    // --- MÉTODO PARA CARGAR DATOS DE EDICIÓN ---
+    private void cargarVentaParaEdicion(long saleId) {
+        try (Connection conn = Database.connect()) {
+            // 1. Cargar Cabecera de Venta
+            String sqlSale = "SELECT * FROM sales WHERE sale_id = ?";
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
+                pstmt.setLong(1, saleId);
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    // Cargar Cliente
+                    int clientId = rs.getInt("client_id");
+                    if (!rs.wasNull()) {
+                        cargarClientePorId(clientId, conn);
+                    }
+
+                    // Cargar Configuración de Venta
+                    String discountType = rs.getString("discount_type");
+                    if(discountType != null) descuentoComboBox.setSelectedItem(discountType);
+                    
+                    tasaBcv = rs.getDouble("bcv_rate_at_sale");
+                    tasaLabel.setText("Tasa BCV (Guardada): " + tasaBcv);
+                    
+                    // Configurar fecha histórica si aplica
+                    String fechaStr = rs.getString("sale_date");
+                    try {
+                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                        Date fecha = sdf.parse(fechaStr);
+                        dateSpinner.setValue(fecha);
+                        historicalSaleCheck.setSelected(true);
+                        toggleHistoricalMode(); 
+                        manualBcvField.setText(String.valueOf(tasaBcv));
+                    } catch (Exception e) { 
+                        e.printStackTrace(); 
+                    }
+
+                    // Mostrar correlativo original
+                    correlativeLabel.setText("Editando Factura N°: " + rs.getString("correlative_number"));
+                    correlativeLabel.setForeground(Color.BLUE);
+                }
+            }
+
+            // 2. Cargar Items (Servicios)
+            String sqlItems = "SELECT si.*, s.name as service_name, t.nombres, t.apellidos " +
+                              "FROM sale_items si " +
+                              "LEFT JOIN services s ON si.service_id = s.service_id " +
+                              "LEFT JOIN trabajadoras t ON si.employee_id = t.id " +
+                              "WHERE si.sale_id = ?";
+            
+            serviciosAgregados.clear();
+            tableModel.setRowCount(0);
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlItems)) {
+                pstmt.setLong(1, saleId);
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    String serviceName = rs.getString("service_name");
+                    if (rs.getBoolean("client_brought_product")) serviceName += " (Cliente)";
+                    
+                    String workerName = rs.getString("nombres") + " " + rs.getString("apellidos");
+                    double price = rs.getDouble("price_at_sale");
+                    
+                    serviciosAgregados.add(new VentaServicio(serviceName, workerName, price));
+                    tableModel.addRow(new Object[]{serviceName, workerName, currencyFormat.format(price)});
+                }
+            }
+
+            // 3. Cargar Pagos
+            String sqlPagos = "SELECT * FROM sale_payments WHERE sale_id = ?";
+            pagosAgregados.clear();
+            pagosTableModel.setRowCount(0);
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlPagos)) {
+                pstmt.setLong(1, saleId);
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    String moneda = rs.getString("moneda");
+                    double monto = rs.getDouble("monto");
+                    double tasaPago = rs.getDouble("tasa_bcv_al_pago");
+                    
+                    // Recuperar el monto en la moneda original para visualización
+                    double montoInput = moneda.equals("Bs") ? (monto / tasaPago) : monto;
+                    
+                    Pago p = new Pago(monto, moneda, rs.getString("metodo_pago"), 
+                                    rs.getString("destino_pago"), rs.getString("referencia_pago"), tasaPago);
+                    
+                    pagosAgregados.add(p);
+                    
+                    String montoDisplay = (moneda.equals("Bs") ? "Bs " : "$ ") + currencyFormat.format(montoInput);
+                    
+                    pagosTableModel.addRow(new Object[]{
+                        montoDisplay,
+                        moneda,
+                        p.metodo() + (p.destino() != null ? " (" + p.destino() + ")" : "")
+                    });
+                }
+            }
+
+            // 4. Cargar Propinas
+            String sqlTips = "SELECT * FROM tips WHERE sale_id = ?";
+            propinasAgregados.clear();
+            propinasTableModel.setRowCount(0);
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlTips)) {
+                pstmt.setLong(1, saleId);
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    String recipient = rs.getString("recipient_name");
+                    double amount = rs.getDouble("amount");
+                    
+                    propinasAgregados.add(new Tip(recipient, amount));
+                    propinasTableModel.addRow(new Object[]{recipient, currencyFormat.format(amount)});
+                }
+            }
+
+            actualizarTotales();
+
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "Error al cargar venta para edición", e);
+            JOptionPane.showMessageDialog(this, "Error al cargar datos: " + e.getMessage());
+        }
+    }
+
+    // Método auxiliar para cargar cliente sin input manual (CORREGIDO)
+    private void cargarClientePorId(int clientId, Connection conn) throws SQLException {
+        String sql = "SELECT * FROM clients WHERE client_id = ?";
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setInt(1, clientId);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                clienteActual = new ClienteActivo(
+                    clientId, rs.getString("cedula"), rs.getString("full_name"), 
+                    rs.getString("hair_type"), rs.getDouble("balance")
+                );
+                
+                // Actualizar UI
+                String cedulaFull = clienteActual.getCedula();
+                if (cedulaFull != null && cedulaFull.length() > 2) {
+                    // CORRECCIÓN APLICADA: Usar cedulaNumeroField
+                    cedulaNumeroField.setText(cedulaFull.substring(2)); // Quitar V-
+                    cedulaTipoComboBox.setSelectedItem(cedulaFull.substring(0,1));
+                }
+                nombreClienteLabel.setText("<html>Nombre: " + clienteActual.getNombre() + 
+                    " <br><font color='blue'>[MODO EDICIÓN]</font></html>");
+            }
+        }
+    }
+
     private void loadApplicationSettings() {
-        this.currentCorrelative = ConfigManager.getCurrentCorrelative();
-        if (correlativeLabel != null) {
-            correlativeLabel.setText("Factura N°: " + currentCorrelative);
+        if (!isEditMode) {
+            this.currentCorrelative = ConfigManager.getCurrentCorrelative();
+            if (correlativeLabel != null) {
+                correlativeLabel.setText("Factura N°: " + currentCorrelative);
+            }
         }
     }
     
@@ -229,7 +405,7 @@ public class CapelliSalesWindow extends JFrame {
         am.put("changeCorrelative", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                promptForCorrelativeChange();
+                if (!isEditMode) promptForCorrelativeChange();
             }
         });
 
@@ -272,6 +448,8 @@ public class CapelliSalesWindow extends JFrame {
     }
 
     private void runBcvWorker() {
+        if (isEditMode) return; // No actualizar tasa automáticamente en modo edición
+        
         tasaLabel.setText("Tasa BCV: Cargando...");
         SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
             @Override
@@ -653,8 +831,8 @@ public class CapelliSalesWindow extends JFrame {
         tasaLabel.setEnabled(!enabled); 
 
         if (!enabled) {
-            manualBcvField.setText("0.00");
-            runBcvWorker(); 
+            if (!isEditMode) manualBcvField.setText("0.00");
+            if (!isEditMode) runBcvWorker(); 
         } else {
             actualizarTasaManual();
         }
@@ -665,7 +843,7 @@ public class CapelliSalesWindow extends JFrame {
             try {
                 tasaBcv = Double.parseDouble(manualBcvField.getText().replace(",", "."));
             } catch (NumberFormatException e) {
-                tasaBcv = 0.0;
+                // Mantener valor anterior o 0.0
             }
             actualizarTotales(); 
         }
@@ -712,7 +890,6 @@ public class CapelliSalesWindow extends JFrame {
 
         ValidationHelper.resetFieldBorder(cedulaNumeroField);
 
-        // MODIFICADO: Se añade 'balance' a la consulta
         String sql = "SELECT client_id, full_name, hair_type, balance FROM clients WHERE cedula = ?";
         try (Connection conn = Database.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
@@ -726,7 +903,7 @@ public class CapelliSalesWindow extends JFrame {
                         cedula,
                         rs.getString("full_name"),
                         rs.getString("hair_type"),
-                        saldo // Nuevo campo en ClienteActivo (debes actualizar esa clase)
+                        saldo 
                 );
 
                 String hairTypeInfo = clienteActual.getHairType();
@@ -884,17 +1061,7 @@ public class CapelliSalesWindow extends JFrame {
         return panel;
     }
 
-    /**
-     * Panel de Pago rediseñado para mayor optimización de espacio vertical.
-     */
     private JPanel crearPanelDerechoInferior() {
-        // Usamos MigLayout para mayor control.
-        // Estructura general: 
-        // - Columna 1: Gestión de Propinas (Arriba) + Descuento (Abajo)
-        // - Columna 2: Resumen (Totales)
-        // - Fila Siguiente: Agregar Pago (Compacto)
-        // - Fila Final: Tabla de Pagos (Ocupa el resto del espacio)
-        
         JPanel panel = new JPanel(new MigLayout("fill, insets 5, wrap 1", "[grow, fill]", "[][][grow][]")); 
         panel.setBorder(new TitledBorder("Total y Pago"));
 
@@ -1002,13 +1169,13 @@ public class CapelliSalesWindow extends JFrame {
         // Botones de Acción
         JButton agregarPagoBtn = new JButton("Agregar");
         agregarPagoBtn.addActionListener(e -> agregarPago());
-        pagoPanel.add(agregarPagoBtn, "split 2, growx"); // 'split 2' permite poner el siguiente botón al lado
+        pagoPanel.add(agregarPagoBtn, "split 2, growx"); 
 
         JButton eliminarPagoBtn = new JButton("Eliminar");
         eliminarPagoBtn.addActionListener(e -> eliminarPago());
         pagoPanel.add(eliminarPagoBtn, "growx, wrap");
 
-        // Sub-panel dinámico para opciones extra (Pago Movil / Zelle)
+        // Sub-panel dinámico para opciones extra (Pago Movil / Zelle / TD)
         JPanel dynamicPaymentOptions = new JPanel(new MigLayout("insets 0", "[]10[]"));
         
         pagoMovilPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
@@ -1022,6 +1189,14 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.add(pagoMovilRosaRadio);
         pagoMovilPanel.setVisible(true);
         dynamicPaymentOptions.add(pagoMovilPanel);
+
+        // Panel TD (Nuevo)
+        tdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        facturaTdField = new JTextField(10); // Campo para el código
+        tdPanel.add(new JLabel("Cód. Factura:"));
+        tdPanel.add(facturaTdField);
+        tdPanel.setVisible(false); // Oculto por defecto
+        dynamicPaymentOptions.add(tdPanel);
 
         transferenciaUsdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         transferenciaHotmailRadio = new JRadioButton("@hotmail", true);
@@ -1042,7 +1217,7 @@ public class CapelliSalesWindow extends JFrame {
         dynamicPaymentOptions.add(transferenciaUsdPanel);
 
         panel.add(pagoPanel);
-        panel.add(dynamicPaymentOptions); // Agregado justo debajo de los inputs principales
+        panel.add(dynamicPaymentOptions); 
 
         ActionListener updateListener = e -> {
             actualizarMetodosPago();
@@ -1062,12 +1237,12 @@ public class CapelliSalesWindow extends JFrame {
         JScrollPane scrollPagos = new JScrollPane(pagosTable);
         scrollPagos.setBorder(new TitledBorder("Pagos Registrados"));
 
-        // 'grow, pushy' hace que este componente tome todo el espacio vertical disponible sobrante
         panel.add(scrollPagos, "grow, pushy, h 100:200:"); 
 
-        // Botón Facturar
-        JButton facturarBtn = new JButton("Generar Factura");
+        // Botón Facturar / Actualizar
+        JButton facturarBtn = new JButton(isEditMode ? "Actualizar Venta" : "Generar Factura");
         facturarBtn.setFont(new Font("Arial", Font.BOLD, 16));
+        if (isEditMode) facturarBtn.setBackground(new Color(200, 230, 255));
         facturarBtn.addActionListener(e -> generarFactura());
         
         panel.add(facturarBtn, "center, gaptop 5");
@@ -1174,6 +1349,12 @@ public class CapelliSalesWindow extends JFrame {
                  JOptionPane.showMessageDialog(this, "Debe ingresar la referencia para la transferencia en $.", "Error de Referencia", JOptionPane.ERROR_MESSAGE);
                  return;
             }
+        } else if ("TD".equals(metodo)) {
+            // Capturar código de factura para TD
+            referencia = facturaTdField.getText().trim();
+            if (referencia.isEmpty()) {
+                 referencia = ""; // Opcional
+            }
         }
         
         double montoEnDolares = monto;
@@ -1191,16 +1372,21 @@ public class CapelliSalesWindow extends JFrame {
         Pago nuevoPago = new Pago(montoEnDolares, moneda, metodo, destino, referencia, tasa);
         pagosAgregados.add(nuevoPago);
         
+        String detalle = metodo;
+        if (destino != null) detalle += " (" + destino + ")";
+        if (referencia != null && !referencia.isEmpty()) detalle += " Ref/Fact: " + referencia;
+
         pagosTableModel.addRow(new Object[]{
             montoDisplay,
             moneda,
-            metodo + (destino != null ? " (" + destino + ")" : "")
+            detalle
         });
 
         LOGGER.info("Pago agregado: " + montoDisplay + " " + metodo);
         
         montoPagoField.setText("0.00");
         referenciaUsdField.setText("");
+        facturaTdField.setText(""); // Limpiar campo TD
         
         actualizarTotales();
         
@@ -1360,7 +1546,7 @@ public class CapelliSalesWindow extends JFrame {
         Connection conn = null;
         long saleId = -1;
         
-        int correlativeToSave = ConfigManager.getCurrentCorrelative();
+        int correlativeToSave = isEditMode ? Integer.parseInt(correlativeLabel.getText().replaceAll("[^0-9]", "")) : ConfigManager.getCurrentCorrelative();
         
         java.util.Date saleDateUtil;
         if (historicalSaleCheck.isSelected()) {
@@ -1382,43 +1568,75 @@ public class CapelliSalesWindow extends JFrame {
             conn = Database.connect();
             conn.setAutoCommit(false);
 
-            String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
-                    + "discount_amount, vat_amount, total, bcv_rate_at_sale, correlative_number) " 
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
-            try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
+            // --- LÓGICA PARA EDITAR O CREAR ---
+            if (isEditMode) {
+                saleId = currentEditingSaleId;
                 
-                if (clienteActual != null) {
-                    pstmt.setInt(1, clienteActual.getId());
-                } else {
-                    pstmt.setNull(1, java.sql.Types.INTEGER);
+                // 1. Actualizar Cabecera
+                String sqlUpdate = "UPDATE sales SET client_id=?, sale_date=?, subtotal=?, discount_type=?, " +
+                                   "discount_amount=?, vat_amount=?, total=?, bcv_rate_at_sale=? WHERE sale_id=?";
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlUpdate)) {
+                    if (clienteActual != null) pstmt.setInt(1, clienteActual.getId());
+                    else pstmt.setNull(1, java.sql.Types.INTEGER);
+                    
+                    pstmt.setString(2, saleDateSqlString);
+                    pstmt.setDouble(3, subtotal);
+                    pstmt.setString(4, tipoDesc);
+                    pstmt.setDouble(5, descuento);
+                    pstmt.setDouble(6, iva);
+                    pstmt.setDouble(7, totalEnDolares);
+                    pstmt.setDouble(8, tasaBcv);
+                    pstmt.setLong(9, saleId);
+                    pstmt.executeUpdate();
                 }
+
+                // 2. Borrar detalles antiguos para reinsertar los nuevos
+                Statement stmtDel = conn.createStatement();
+                stmtDel.executeUpdate("DELETE FROM sale_items WHERE sale_id = " + saleId);
+                stmtDel.executeUpdate("DELETE FROM sale_payments WHERE sale_id = " + saleId);
+                stmtDel.executeUpdate("DELETE FROM tips WHERE sale_id = " + saleId);
+                stmtDel.close();
                 
-                pstmt.setString(2, saleDateSqlString); 
-                pstmt.setDouble(3, subtotal); 
-                pstmt.setString(4, tipoDesc); 
-                pstmt.setDouble(5, descuento); 
-                pstmt.setDouble(6, iva); 
-                pstmt.setDouble(7, totalEnDolares); 
-                pstmt.setDouble(8, tasaBcv); 
-                pstmt.setString(9, String.valueOf(correlativeToSave));
-                
-                pstmt.executeUpdate();
+                LOGGER.info("Detalles antiguos eliminados para actualización de venta ID: " + saleId);
+
+            } else {
+                // Lógica de INSERT normal
+                String sqlSale = "INSERT INTO sales (client_id, sale_date, subtotal, discount_type, "
+                        + "discount_amount, vat_amount, total, bcv_rate_at_sale, correlative_number) " 
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlSale)) {
+                    if (clienteActual != null) {
+                        pstmt.setInt(1, clienteActual.getId());
+                    } else {
+                        pstmt.setNull(1, java.sql.Types.INTEGER);
+                    }
+                    pstmt.setString(2, saleDateSqlString); 
+                    pstmt.setDouble(3, subtotal); 
+                    pstmt.setString(4, tipoDesc); 
+                    pstmt.setDouble(5, descuento); 
+                    pstmt.setDouble(6, iva); 
+                    pstmt.setDouble(7, totalEnDolares); 
+                    pstmt.setDouble(8, tasaBcv); 
+                    pstmt.setString(9, String.valueOf(correlativeToSave));
+                    pstmt.executeUpdate();
+                }
+
+                try (Statement stmt = conn.createStatement();
+                     ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()")) {
+                    if (rs.next()) {
+                        saleId = rs.getLong(1);
+                    } else {
+                        throw new SQLException("Error al obtener el ID de la venta generada");
+                    }
+                }
             }
 
-            try (Statement stmt = conn.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT last_insert_rowid()")) {
-                if (rs.next()) {
-                    saleId = rs.getLong(1);
-                    LOGGER.info("Venta insertada con ID: " + saleId + ", Correlativo: " + correlativeToSave + ", Fecha: " + saleDateSqlString);
-                } else {
-                    throw new SQLException("Error al obtener el ID de la venta generada (last_insert_rowid falló)");
-                }
-            }
-
+            // --- INSERCIÓN DE DETALLES (Común para Create y Update) ---
+            
+            // 1. Items
             String sqlItems = "INSERT INTO sale_items (sale_id, service_id, employee_id, price_at_sale, client_brought_product) "
                     + "VALUES (?, ?, ?, ?, ?)";
-
             try (PreparedStatement pstmt = conn.prepareStatement(sqlItems)) {
                 for (VentaServicio vs : serviciosAgregados) {
                     int serviceId = getServiceId(vs.getServicio(), conn);
@@ -1432,18 +1650,18 @@ public class CapelliSalesWindow extends JFrame {
                     pstmt.setBoolean(5, clienteTrajo);
                     pstmt.addBatch();
                 }
-
                 pstmt.executeBatch();
             }
 
+            // 2. Pagos
             String sqlPayments = "INSERT INTO sale_payments (sale_id, monto, moneda, metodo_pago, "
                     + "destino_pago, referencia_pago, tasa_bcv_al_pago) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?)";
-            
             try (PreparedStatement pstmt = conn.prepareStatement(sqlPayments)) {
                 for (Pago p : pagosAgregados) {
                     pstmt.setLong(1, saleId);
                     
+                    // Guardamos el valor nominal o convertido según la lógica original
                     if(p.moneda().equals("Bs")) {
                         pstmt.setDouble(2, p.monto() * p.tasaBcv()); 
                     } else {
@@ -1460,9 +1678,9 @@ public class CapelliSalesWindow extends JFrame {
                 pstmt.executeBatch();
             }
 
+            // 3. Propinas
             if (!propinasAgregados.isEmpty()) {
                 String sqlTip = "INSERT INTO tips (sale_id, recipient_name, amount) VALUES (?, ?, ?)";
-
                 try (PreparedStatement pstmt = conn.prepareStatement(sqlTip)) {
                     for (Tip tip : propinasAgregados) {
                         pstmt.setLong(1, saleId);
@@ -1474,71 +1692,60 @@ public class CapelliSalesWindow extends JFrame {
                 }
             }
 
-            // ===== INICIO MODIFICACIÓN SALDO =====
+            // --- MANEJO DE SALDO (Solo para ventas nuevas para evitar complejidad de reversión) ---
             double vuelto = totalPagadoEnDolares - totalEnDolares;
             boolean abonoSaldoExitoso = false;
 
-            // Si hay vuelto y hay cliente seleccionado (tolerancia de 0.01)
-            if (vuelto > 0.01 && clienteActual != null) {
+            if (!isEditMode && vuelto > 0.01 && clienteActual != null) {
                 String msg = String.format("Hay un vuelto de $%.2f.\n¿Desea abonarlo al saldo a favor de %s?", 
                                            vuelto, clienteActual.getNombre());
-                
                 int respuesta = JOptionPane.showConfirmDialog(this, msg, "Gestionar Vuelto", 
                                                               JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-                
                 if (respuesta == JOptionPane.YES_OPTION) {
-                    // Actualizar saldo usando la conexión abierta de la transacción
                     Database.updateClientBalance(conn, clienteActual.getId(), vuelto);
                     abonoSaldoExitoso = true;
-                    LOGGER.info("Abonado vuelto de $" + vuelto + " al cliente ID " + clienteActual.getId());
                 }
             }
-            // ===== FIN MODIFICACIÓN SALDO =====
             
             conn.commit();
 
-            int nextCorrelative = correlativeToSave + 1;
-            ConfigManager.setCorrelative(nextCorrelative);
-            loadApplicationSettings();
+            // Post-proceso
+            if (!isEditMode) {
+                int nextCorrelative = correlativeToSave + 1;
+                ConfigManager.setCorrelative(nextCorrelative);
+                loadApplicationSettings();
+            }
 
-            // Modificamos el mensaje de éxito para reflejar si se abonó
+            String accionStr = isEditMode ? "Actualizada" : "Registrada";
             String mensajeExito;
+            
             if (abonoSaldoExitoso) {
-                // Construimos mensaje personalizado
-                StringBuilder sb = new StringBuilder();
-                sb.append("Venta registrada exitosamente\n\n");
-                sb.append("N° Factura: ").append(currentCorrelative).append("\n");
-                sb.append("Total: $").append(currencyFormat.format(totalEnDolares)).append("\n");
-                sb.append("Pagado: $").append(currencyFormat.format(totalPagadoEnDolares)).append("\n");
-                sb.append(" Abonado a Cuenta: $").append(currencyFormat.format(vuelto)).append(" \n");
-                mensajeExito = sb.toString();
+                mensajeExito = "Venta " + accionStr + " y saldo abonado exitosamente.";
             } else {
-                // Mensaje estándar (vuelto en efectivo)
                 mensajeExito = construirMensajeExito(saleId, totalEnDolares, totalPagadoEnDolares);
             }
 
-            JOptionPane.showMessageDialog(this, mensajeExito, "✅ Factura Generada Exitosamente", JOptionPane.INFORMATION_MESSAGE);
-            limpiarVentana();
+            JOptionPane.showMessageDialog(this, mensajeExito, "✅ Éxito", JOptionPane.INFORMATION_MESSAGE);
+            
+            if (isEditMode) {
+                dispose(); // Cerrar ventana de edición
+            } else {
+                limpiarVentana(); // Preparar para siguiente venta
+            }
 
         } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "Error al registrar la venta", e);
+            LOGGER.log(Level.SEVERE, "Error al registrar/actualizar la venta", e);
             try {
-                if (conn != null) {
-                    conn.rollback();
-                }
-            } catch (SQLException ex) {
-                LOGGER.log(Level.SEVERE, "Error al hacer rollback", ex);
-            }
-            JOptionPane.showMessageDialog(this, "Error al registrar la venta en la base de datos:\n\n" + e.getMessage(), "❌ Error de Transacción", JOptionPane.ERROR_MESSAGE);
+                if (conn != null) conn.rollback();
+            } catch (SQLException ex) { ex.printStackTrace(); }
+            JOptionPane.showMessageDialog(this, "Error en base de datos:\n" + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         } finally {
             try {
                 if (conn != null) {
                     conn.setAutoCommit(true);
                     conn.close();
                 }
-            } catch (SQLException ex) {
-                LOGGER.log(Level.SEVERE, "Error al cerrar conexión", ex);
-            }
+            } catch (SQLException ex) { ex.printStackTrace(); }
         }
     }
 
@@ -1570,10 +1777,10 @@ public class CapelliSalesWindow extends JFrame {
     
     private String construirMensajeExito(long saleId, double total, double montoPagado) {
         StringBuilder mensaje = new StringBuilder();
-        mensaje.append("Venta registrada exitosamente\n\n");
+        String titulo = isEditMode ? "Venta Actualizada" : "Venta Registrada";
+        mensaje.append(titulo).append(" Exitosamente\n\n");
         mensaje.append("═══════════════════════════════════\n");
-        mensaje.append("ID de Venta: ").append(saleId).append("\n");
-        mensaje.append("N° Factura: ").append(currentCorrelative).append("\n");
+        if (!isEditMode) mensaje.append("N° Factura: ").append(currentCorrelative).append("\n");
         mensaje.append("───────────────────────────────────\n");
         mensaje.append("Total: $").append(currencyFormat.format(total)).append("\n");
         mensaje.append("Pagado: $").append(currencyFormat.format(montoPagado)).append("\n");
@@ -1582,7 +1789,6 @@ public class CapelliSalesWindow extends JFrame {
             mensaje.append("Vuelto: $").append(currencyFormat.format(vuelto)).append("\n");
         }
         mensaje.append("═══════════════════════════════════\n");
-        mensaje.append("\n¡Gracias por usar el sistema Capelli!");
         return mensaje.toString();
     }
 
@@ -1606,6 +1812,9 @@ public class CapelliSalesWindow extends JFrame {
         montoPagoField.setText("0.00"); 
         if (referenciaUsdField != null) {
             referenciaUsdField.setText("");
+        }
+        if (facturaTdField != null) {
+            facturaTdField.setText("");
         }
 
         propinaField.setText("0.00");
@@ -1639,6 +1848,7 @@ public class CapelliSalesWindow extends JFrame {
         boolean esBs = monedaBs.isSelected();
         pagoMovilPanel.setVisible(esBs && "Pago Movil".equals(selectedMethod));
         transferenciaUsdPanel.setVisible(!esBs && "Transferencia".equals(selectedMethod));
+        tdPanel.setVisible("TD".equals(selectedMethod));
     }
 
     public static void main(String[] args) throws SQLException {
