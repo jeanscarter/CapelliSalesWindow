@@ -1037,17 +1037,35 @@ public class CapelliSalesWindow extends JFrame {
 
         tableModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 2) {
-                int row = e.getFirstRow();
-                try {
-                    int modelRow = serviciosTable.convertRowIndexToModel(row);
-                    double nuevoPrecio = Double.parseDouble(tableModel.getValueAt(row, 2).toString().replace(",", "."));
-                    serviciosAgregados.get(modelRow).setPrecio(nuevoPrecio);
-                    actualizarTotales();
-                } catch (NumberFormatException ex) {
-                    JOptionPane.showMessageDialog(this, "Por favor, ingrese un número válido.", "Error", JOptionPane.ERROR_MESSAGE);
-                } catch (IndexOutOfBoundsException ioobe) {
-                     LOGGER.log(Level.WARNING, "Error de sincronización de tabla al editar precio", ioobe);
-                }
+                SwingUtilities.invokeLater(() -> {
+                    int row = e.getFirstRow();
+                    // Validación de seguridad
+                    if (row < 0 || row >= tableModel.getRowCount()) return;
+
+                    try {
+                        // El evento nos da el índice del MODELO, no de la vista.
+                        // No necesitamos convertRowIndexToModel aquí si serviciosAgregados está sincronizado con el modelo.
+                        
+                        Object valorCelda = tableModel.getValueAt(row, 2);
+                        if (valorCelda != null) {
+                            double nuevoPrecio = Double.parseDouble(valorCelda.toString().replace(",", "."));
+                            
+                            // Actualizamos la lista lógica de servicios
+                            if (row < serviciosAgregados.size()) {
+                                serviciosAgregados.get(row).setPrecio(nuevoPrecio);
+                                
+                                // Recalculamos los totales de la venta
+                                actualizarTotales();
+                            }
+                        }
+                    } catch (NumberFormatException ex) {
+                        // Es peligroso mostrar JOptionPane aquí directo, pero con invokeLater es más seguro.
+                        // Aún mejor: revertir el valor a 0.00 o al anterior sin bloquear.
+                        JOptionPane.showMessageDialog(this, "Por favor, ingrese un número válido.", "Error", JOptionPane.ERROR_MESSAGE);
+                    } catch (Exception ex) {
+                         LOGGER.log(Level.WARNING, "Error al actualizar precio en tabla", ex);
+                    }
+                });
             }
         });
 
