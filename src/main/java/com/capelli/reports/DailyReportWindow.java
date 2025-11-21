@@ -2,8 +2,11 @@ package com.capelli.reports;
 
 import com.capelli.capellisaleswindow.BCVService;
 import com.capelli.database.Database;
+import com.capelli.config.AppConfig;
 import com.formdev.flatlaf.FlatDarkLaf;
-import java.awt.Font;
+
+import javax.swing.*;
+import java.awt.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -11,21 +14,9 @@ import java.sql.SQLException;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JSpinner;
-import javax.swing.SpinnerDateModel;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
-import javax.swing.UIManager;
-import net.miginfocom.swing.MigLayout;
-import com.capelli.config.AppConfig;
-import java.util.logging.Logger;
 import java.util.logging.Level;
+import java.util.logging.Logger;
+import net.miginfocom.swing.MigLayout;
 
 public class DailyReportWindow extends JFrame {
 
@@ -35,43 +26,59 @@ public class DailyReportWindow extends JFrame {
     private final JSpinner dateSpinner;
     
     // Etiquetas de montos
+    private final JLabel rateUsedLabel; // Etiqueta para mostrar la tasa usada
     private final JLabel cashUsdLabel;
     private final JLabel posAndMobilePaymentBsLabel;
     private final JLabel zelleLabel;
     private final JLabel accountsReceivableLabel;
     private final JLabel personalAccountPaymentsLabel;
     private final JLabel othersLabel;
+    
+    // Etiqueta de Total
+    private final JLabel totalDayLabel;
 
     private final DecimalFormat currencyFormat = new DecimalFormat("#,##0.00");
-    private double bcvRate = AppConfig.getDefaultBcvRate();
+
+    // Record para transportar datos del worker a la UI
+    private record DailyStats(
+        double rateUsed,
+        double cashUsd, 
+        double totalBsCapelli, 
+        double totalBsRosa, 
+        double zelleUsd, 
+        double receivableUsd
+    ) {}
 
     public DailyReportWindow() {
         setTitle("Reporte Diario de Operaciones - Capelli");
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(600, 450); // Un poco más ancho para el selector
+        setSize(650, 550); 
         setLocationRelativeTo(null);
         setResizable(false);
         
-        // Carga inicial de tasa (aunque el reporte usa montos guardados, es bueno tenerla actualizada)
-        loadBcvRate(); 
-
         // --- Inicialización de Componentes ---
         
-        // Selector de Fecha
         dateSpinner = new JSpinner(new SpinnerDateModel());
         dateSpinner.setEditor(new JSpinner.DateEditor(dateSpinner, "dd/MM/yyyy"));
-        dateSpinner.setValue(new Date()); // Por defecto hoy
+        dateSpinner.setValue(new Date()); 
+
+        JButton refreshButton = new JButton("Consultar Fecha");
+        refreshButton.addActionListener(e -> loadReportData());
 
         // Etiquetas de resultados
+        rateUsedLabel = new JLabel("Tasa: -");
+        rateUsedLabel.setForeground(Color.GRAY);
+        
         cashUsdLabel = new JLabel("Cargando...");
         posAndMobilePaymentBsLabel = new JLabel("Cargando...");
         zelleLabel = new JLabel("Cargando...");
         accountsReceivableLabel = new JLabel("Cargando...");
         personalAccountPaymentsLabel = new JLabel("Cargando...");
         othersLabel = new JLabel("$ 0.00"); 
-
-        JButton refreshButton = new JButton("Consultar Fecha");
-        refreshButton.addActionListener(e -> loadReportData());
+        
+        totalDayLabel = new JLabel("$ 0.00");
+        totalDayLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
+        totalDayLabel.setForeground(new Color(0, 150, 0)); // Verde oscuro
 
         // --- Diseño del Panel (Layout) ---
         JPanel mainPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 15", "[right]15[grow, left]"));
@@ -79,22 +86,23 @@ public class DailyReportWindow extends JFrame {
 
         // Fila 1: Selección de Fecha
         mainPanel.add(new JLabel("Seleccione Fecha:"));
-        JPanel datePanel = new JPanel(new MigLayout("insets 0", "[grow][]"));
+        JPanel datePanel = new JPanel(new MigLayout("insets 0", "[grow][][]"));
         datePanel.add(dateSpinner, "growx, w 150!");
         datePanel.add(refreshButton, "gapleft 10");
+        datePanel.add(rateUsedLabel, "gapleft 15");
         mainPanel.add(datePanel, "growx");
 
-        // Separador (CORREGIDO: gapyb 10 -> gapbottom 10)
+        // Separador
         mainPanel.add(new javax.swing.JSeparator(), "span 2, growx, gapbottom 10");
 
         // Filas de Datos
         mainPanel.add(new JLabel("Efectivo ($):"));
         mainPanel.add(cashUsdLabel, "growx");
 
-        mainPanel.add(new JLabel("Pto. Venta / P. Móvil Capelli (Bs):"));
+        mainPanel.add(new JLabel("Pto. Venta / P. Móvil Capelli:"));
         mainPanel.add(posAndMobilePaymentBsLabel, "growx");
         
-        mainPanel.add(new JLabel("Pagos Cta. Personal (Bs):"));
+        mainPanel.add(new JLabel("Pagos Cta. Personal:"));
         mainPanel.add(personalAccountPaymentsLabel, "growx");
 
         mainPanel.add(new JLabel("Zelle / Transferencia ($):"));
@@ -105,45 +113,31 @@ public class DailyReportWindow extends JFrame {
 
         mainPanel.add(new JLabel("Otros (préstamos, etc.):"));
         mainPanel.add(othersLabel, "growx");
+        
+        // Separador Final
+        mainPanel.add(new javax.swing.JSeparator(), "span 2, growx, gaptop 10, gapbottom 10");
+        
+        // Total General
+        JLabel lblTotalTitle = new JLabel("TOTAL GENERAL ($):");
+        lblTotalTitle.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        mainPanel.add(lblTotalTitle);
+        mainPanel.add(totalDayLabel, "growx");
 
         add(mainPanel);
         
-        // Cargar datos iniciales (fecha de hoy)
         loadReportData();
-    }
-    
-    private void loadBcvRate() {
-        SwingWorker<Double, Void> worker = new SwingWorker<Double, Void>() {
-            @Override
-            protected Double doInBackground() throws Exception {
-                return BCVService.getBCVRateSafe();
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    double rate = get();
-                    if (rate > 0) {
-                        bcvRate = rate;
-                    }
-                } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error al cargar tasa BCV", e);
-                }
-            }
-        };
-        worker.execute();
     }
 
     private void loadReportData() {
         setLabelsToLoading();
         
-        // Obtener la fecha seleccionada del Spinner
         Date selectedDate = (Date) dateSpinner.getValue();
         String dateStr = new SimpleDateFormat("yyyy-MM-dd").format(selectedDate);
         
-        SwingWorker<double[], Void> worker = new SwingWorker<>() {
+        SwingWorker<DailyStats, Void> worker = new SwingWorker<>() {
             @Override
-            protected double[] doInBackground() throws Exception {
+            protected DailyStats doInBackground() throws Exception {
+                double rateFound = 0.0;
                 double cashUsd = 0;
                 double totalBsCapelli = 0;
                 double totalBsRosa = 0;
@@ -152,10 +146,24 @@ public class DailyReportWindow extends JFrame {
 
                 try (Connection conn = Database.connect()) {
                     
-                    // --- 1. Calcular Cuentas por Cobrar ---
-                    // Se usa la fecha seleccionada (dateStr)
+                    // 1. Obtener la Tasa de la PRIMERA venta del día
+                    String sqlRate = "SELECT bcv_rate_at_sale FROM sales WHERE date(sale_date) = ? ORDER BY sale_date ASC LIMIT 1";
+                    try (PreparedStatement pstmt = conn.prepareStatement(sqlRate)) {
+                        pstmt.setString(1, dateStr);
+                        ResultSet rs = pstmt.executeQuery();
+                        if (rs.next()) {
+                            rateFound = rs.getDouble("bcv_rate_at_sale");
+                        }
+                    }
+                    
+                    // Si no hubo ventas o la tasa es 0, usamos la tasa actual/configurada por seguridad
+                    if (rateFound <= 0) {
+                        rateFound = AppConfig.getDefaultBcvRate();
+                    }
+
+                    // 2. Calcular Cuentas por Cobrar
                     String sqlReceivable = "SELECT COALESCE(SUM(total), 0.0) FROM sales "
-                                         + "WHERE date(sale_date) = ? " // Eliminado 'localtime' para precisión
+                                         + "WHERE date(sale_date) = ? "
                                          + "AND discount_type = 'Cuenta por Cobrar'";
                     
                     try (PreparedStatement pstmt = conn.prepareStatement(sqlReceivable)) {
@@ -166,14 +174,13 @@ public class DailyReportWindow extends JFrame {
                         }
                     }
 
-                    // --- 2. Calcular Pagos ---
-                    // Se usa la fecha seleccionada (dateStr)
+                    // 3. Calcular Pagos
                     String sqlPayments = "SELECT "
                                        + "    p.metodo_pago, p.moneda, p.monto, "
                                        + "    p.destino_pago "
                                        + "FROM sale_payments p "
                                        + "JOIN sales s ON p.sale_id = s.sale_id "
-                                       + "WHERE date(s.sale_date) = ? " // Eliminado 'localtime' para precisión
+                                       + "WHERE date(s.sale_date) = ? "
                                        + "AND s.discount_type != 'Cuenta por Cobrar'";
 
                     try (PreparedStatement pstmt = conn.prepareStatement(sqlPayments)) {
@@ -208,21 +215,42 @@ public class DailyReportWindow extends JFrame {
                     }
                 } catch (SQLException e) {
                     LOGGER.log(Level.SEVERE, "Error al cargar datos del reporte diario", e);
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(DailyReportWindow.this,
-                            "Error al cargar los datos: " + e.getMessage(), "Error BD", JOptionPane.ERROR_MESSAGE));
+                    // En caso de error retornamos ceros
                 }
-                return new double[]{cashUsd, totalBsCapelli, totalBsRosa, zelleUsd, receivableUsd};
+                
+                return new DailyStats(rateFound, cashUsd, totalBsCapelli, totalBsRosa, zelleUsd, receivableUsd);
             }
 
             @Override
             protected void done() {
                 try {
-                    double[] results = get();
-                    cashUsdLabel.setText("$ " + currencyFormat.format(results[0]));
-                    posAndMobilePaymentBsLabel.setText("Bs " + currencyFormat.format(results[1]));
-                    personalAccountPaymentsLabel.setText("Bs " + currencyFormat.format(results[2]));
-                    zelleLabel.setText("$ " + currencyFormat.format(results[3]));
-                    accountsReceivableLabel.setText("$ " + currencyFormat.format(results[4]));
+                    DailyStats stats = get();
+                    
+                    // Mostrar Tasa usada
+                    rateUsedLabel.setText("(Tasa usada: " + currencyFormat.format(stats.rateUsed) + " Bs/$)");
+                    
+                    // Conversiones
+                    double capelliInUsd = (stats.rateUsed > 0) ? (stats.totalBsCapelli / stats.rateUsed) : 0;
+                    double rosaInUsd = (stats.rateUsed > 0) ? (stats.totalBsRosa / stats.rateUsed) : 0;
+                    
+                    // Set labels
+                    cashUsdLabel.setText("$ " + currencyFormat.format(stats.cashUsd));
+                    
+                    posAndMobilePaymentBsLabel.setText("Bs " + currencyFormat.format(stats.totalBsCapelli) + 
+                            "  ➤  ($ " + currencyFormat.format(capelliInUsd) + ")");
+                            
+                    personalAccountPaymentsLabel.setText("Bs " + currencyFormat.format(stats.totalBsRosa) + 
+                            "  ➤  ($ " + currencyFormat.format(rosaInUsd) + ")");
+                    
+                    zelleLabel.setText("$ " + currencyFormat.format(stats.zelleUsd));
+                    accountsReceivableLabel.setText("$ " + currencyFormat.format(stats.receivableUsd));
+                    
+                    // Calcular Total General en Dólares
+                    // (Nota: othersLabel está hardcodeado a 0 en la inicialización, si hubiera lógica se suma aquí)
+                    double grandTotal = stats.cashUsd + stats.zelleUsd + stats.receivableUsd + capelliInUsd + rosaInUsd;
+                    
+                    totalDayLabel.setText("$ " + currencyFormat.format(grandTotal));
+
                 } catch (Exception e) {
                     LOGGER.log(Level.SEVERE, "Error al mostrar resultados", e);
                 }
@@ -233,11 +261,13 @@ public class DailyReportWindow extends JFrame {
     
     private void setLabelsToLoading() {
         String loading = "Calculando...";
+        rateUsedLabel.setText("Consultando...");
         cashUsdLabel.setText(loading);
         posAndMobilePaymentBsLabel.setText(loading);
         personalAccountPaymentsLabel.setText(loading);
         zelleLabel.setText(loading);
         accountsReceivableLabel.setText(loading);
+        totalDayLabel.setText("$ -");
     }
 
     public static void main(String[] args) {

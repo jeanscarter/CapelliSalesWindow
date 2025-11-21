@@ -49,12 +49,10 @@ import net.miginfocom.swing.MigLayout;
 public class CapelliSalesWindow extends JFrame {
 
     private static final Logger LOGGER = Logger.getLogger(CapelliSalesWindow.class.getName());
-    
-    // --- VARIABLES PARA EDICIÓN ---
+     
     private long currentEditingSaleId = -1; // -1 indica nueva venta
     private boolean isEditMode = false;
-    // ------------------------------
-
+    
     private boolean ivaExcluido = false; 
     private Map<String, Double> preciosServicios = new HashMap<>();
     private List<String> trabajadorasNombres = new ArrayList<>();
@@ -90,13 +88,11 @@ public class CapelliSalesWindow extends JFrame {
     private JLabel ivaLabel;
     private JLabel totalLabel;
 
-    // Paneles de Pago Dinámicos
     private JRadioButton pagoMovilCapelliRadio;
     private JRadioButton pagoMovilRosaRadio;
     private ButtonGroup pagoMovilDestinoGroup;
     private JPanel pagoMovilPanel;
     
-    // Panel TD (NUEVO)
     private JPanel tdPanel;
     private JTextField facturaTdField;
     
@@ -133,7 +129,6 @@ public class CapelliSalesWindow extends JFrame {
     private JTable propinasTable;
     private final List<Tip> propinasAgregados = new ArrayList<>();
 
-    // --- CONSTRUCTOR PRINCIPAL (NUEVA VENTA) ---
     public CapelliSalesWindow() {
         super(AppConfig.getAppTitle());
 
@@ -226,7 +221,6 @@ public class CapelliSalesWindow extends JFrame {
         cedulaTipoComboBox.addActionListener(e -> validateCedulaInput());
     }
 
-    // --- NUEVO CONSTRUCTOR SECUNDARIO (MODO EDICIÓN) ---
     public CapelliSalesWindow(long saleIdToEdit) {
         this(); // Llama al constructor principal para inicializar toda la UI
         this.currentEditingSaleId = saleIdToEdit;
@@ -240,7 +234,6 @@ public class CapelliSalesWindow extends JFrame {
         SwingUtilities.invokeLater(() -> cargarVentaParaEdicion(saleIdToEdit));
     }
 
-    // --- MÉTODO PARA CARGAR DATOS DE EDICIÓN ---
     private void cargarVentaParaEdicion(long saleId) {
         try (Connection conn = Database.connect()) {
             // 1. Cargar Cabecera de Venta
@@ -249,7 +242,7 @@ public class CapelliSalesWindow extends JFrame {
                 pstmt.setLong(1, saleId);
                 ResultSet rs = pstmt.executeQuery();
                 if (rs.next()) {
-                    // Cargar Cliente
+
                     int clientId = rs.getInt("client_id");
                     if (!rs.wasNull()) {
                         cargarClientePorId(clientId, conn);
@@ -1187,7 +1180,7 @@ public class CapelliSalesWindow extends JFrame {
         pagoMovilPanel.add(new JLabel("Destino:"));
         pagoMovilPanel.add(pagoMovilCapelliRadio);
         pagoMovilPanel.add(pagoMovilRosaRadio);
-        pagoMovilPanel.setVisible(true);
+        pagoMovilPanel.setVisible(false); 
         dynamicPaymentOptions.add(pagoMovilPanel);
 
         // Panel TD (Nuevo)
@@ -1195,7 +1188,7 @@ public class CapelliSalesWindow extends JFrame {
         facturaTdField = new JTextField(10); // Campo para el código
         tdPanel.add(new JLabel("Cód. Factura:"));
         tdPanel.add(facturaTdField);
-        tdPanel.setVisible(false); // Oculto por defecto
+        tdPanel.setVisible(false); 
         dynamicPaymentOptions.add(tdPanel);
 
         transferenciaUsdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
@@ -1246,6 +1239,8 @@ public class CapelliSalesWindow extends JFrame {
         facturarBtn.addActionListener(e -> generarFactura());
         
         panel.add(facturarBtn, "center, gaptop 5");
+
+        actualizarPanelesPago(); 
 
         return panel;
     }
