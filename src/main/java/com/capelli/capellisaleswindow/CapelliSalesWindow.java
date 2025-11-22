@@ -4,6 +4,7 @@ import com.capelli.clientmanagementwindow.ClientManagementWindow;
 import com.capelli.database.Database;
 import com.capelli.model.Trabajadora;
 import com.capelli.reports.DailyReportWindow;
+import com.capelli.reports.WeeklyReportWindow; // IMPORTACIÓN AGREGADA
 import com.capelli.salesdashboard.SalesDashboardWindow;
 import com.capelli.ui.MainPanel;
 import com.formdev.flatlaf.FlatDarkLaf;
@@ -790,6 +791,17 @@ public class CapelliSalesWindow extends JFrame {
         verReporteDiarioBtn.addActionListener(e -> {
             new DailyReportWindow().setVisible(true);
         });
+
+        // --- INICIO AGREGADO REPORTE SEMANAL ---
+        JButton verReporteSemanalBtn = new JButton("Ver Reporte Semanal");
+        verReporteSemanalBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        gbcCliente.gridy = 10; // Incrementamos la fila
+        clientePanel.add(verReporteSemanalBtn, gbcCliente);
+
+        verReporteSemanalBtn.addActionListener(e -> {
+            new com.capelli.reports.WeeklyReportWindow().setVisible(true);
+        });
+        // --- FIN AGREGADO ---
 
         JToggleButton themeToggle = new JToggleButton("Cambiar a Modo Claro", true);
         themeToggle.addActionListener(e -> {
