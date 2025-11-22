@@ -28,10 +28,11 @@ public class TrabajadoraDAO {
      */
     public int save(Trabajadora trabajadora) throws SQLException, IOException {
         String sqlTrabajadora;
+        // MODIFICACIÓN: Se agregan los campos de bono al SQL
         if (trabajadora.getId() == 0) {
-            sqlTrabajadora = "INSERT INTO trabajadoras (nombres, apellidos, tipo_ci, numero_ci, telefono, correo, foto) VALUES (?, ?, ?, ?, ?, ?, ?)";
+            sqlTrabajadora = "INSERT INTO trabajadoras (nombres, apellidos, tipo_ci, numero_ci, telefono, correo, foto, bono_activo, monto_bono, razon_bono) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         } else {
-            sqlTrabajadora = "UPDATE trabajadoras SET nombres = ?, apellidos = ?, tipo_ci = ?, numero_ci = ?, telefono = ?, correo = ?, foto = ? WHERE id = ?";
+            sqlTrabajadora = "UPDATE trabajadoras SET nombres = ?, apellidos = ?, tipo_ci = ?, numero_ci = ?, telefono = ?, correo = ?, foto = ?, bono_activo = ?, monto_bono = ?, razon_bono = ? WHERE id = ?";
         }
 
         Connection conn = null;
@@ -54,8 +55,13 @@ public class TrabajadoraDAO {
                     pstmt.setNull(7, java.sql.Types.BLOB);
                 }
 
+                // NUEVOS CAMPOS DE BONO
+                pstmt.setBoolean(8, trabajadora.isBonoActivo());
+                pstmt.setDouble(9, trabajadora.getMontoBono());
+                pstmt.setString(10, trabajadora.getRazonBono());
+
                 if (trabajadora.getId() != 0) {
-                    pstmt.setInt(8, trabajadora.getId());
+                    pstmt.setInt(11, trabajadora.getId()); // El ID pasa a ser el parámetro 11 en el UPDATE
                 }
                 
                 pstmt.executeUpdate();
@@ -136,6 +142,17 @@ public class TrabajadoraDAO {
                 t.setNumeroCi(rs.getString("numero_ci"));
                 t.setTelefono(rs.getString("telefono"));
                 t.setCorreoElectronico(rs.getString("correo"));
+                
+                // Recuperar datos del bono (si las columnas no existen, devolverán valores por defecto o null, 
+                // pero como ya ejecutamos el ALTER TABLE en Database.initialize, deberían existir)
+                try {
+                    t.setBonoActivo(rs.getBoolean("bono_activo"));
+                    t.setMontoBono(rs.getDouble("monto_bono"));
+                    t.setRazonBono(rs.getString("razon_bono"));
+                } catch (SQLException ex) {
+                    // En caso de que la columna no exista aún (versión vieja de DB sin actualizar),
+                    // ignoramos el error y quedan los valores por defecto.
+                }
                 
                 byte[] fotoBytes = rs.getBytes("foto");
                 if (fotoBytes != null) {

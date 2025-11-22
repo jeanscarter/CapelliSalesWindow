@@ -45,6 +45,11 @@ public class TrabajadoraDialog extends JDialog {
     private final JTable tblCuentas;
     private final DefaultTableModel cuentasTableModel;
 
+    // NUEVOS COMPONENTES PARA BONO
+    private final JCheckBox chkBonoActivo;
+    private final JTextField txtMontoBono;
+    private final JTextField txtRazonBono;
+
     public TrabajadoraDialog(Frame owner, Trabajadora trabajadora, boolean isDarkMode) {
         super(owner, true);
         this.trabajadora = (trabajadora != null) ? trabajadora : new Trabajadora();
@@ -55,38 +60,55 @@ public class TrabajadoraDialog extends JDialog {
         setTitle(trabajadora == null ? "Crear Trabajadora" : "Editar Trabajadora");
         setLayout(new BorderLayout());
 
+        // --- Paneles Principales ---
         JPanel formPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 15", "[right]rel[grow,fill]", ""));
         JPanel cuentasPanel = new JPanel(new MigLayout("wrap 2, fill, insets 10", "[right]rel[grow,fill]", ""));
+        
+        // NUEVO PANEL DE BONO
+        JPanel bonoPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 10", "[right]rel[grow,fill]", ""));
+        
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JPanel mainPanel = new JPanel(new BorderLayout(10,10));
         JPanel ciPanel = new JPanel(new MigLayout("insets 0, gap 0", "[][grow]", "[]"));
 
+        // --- Estilos (Dark/Light Mode) ---
         if (isDarkMode) {
             Color darkBackground = UIManager.getColor("Panel.background");
             Color lightText = UIManager.getColor("Label.foreground");
 
             formPanel.setBackground(darkBackground);
             cuentasPanel.setBackground(darkBackground);
+            bonoPanel.setBackground(darkBackground);
             ciPanel.setBackground(darkBackground);
             buttonPanel.setBackground(darkBackground);
             mainPanel.setBackground(darkBackground);
 
-            TitledBorder border = new TitledBorder("Cuentas Bancarias");
-            border.setTitleColor(lightText);
-            cuentasPanel.setBorder(border);
+            TitledBorder borderCuentas = new TitledBorder("Cuentas Bancarias");
+            borderCuentas.setTitleColor(lightText);
+            cuentasPanel.setBorder(borderCuentas);
+            
+            TitledBorder borderBono = new TitledBorder("Bono Fijo Semanal / Quincenal");
+            borderBono.setTitleColor(lightText);
+            bonoPanel.setBorder(borderBono);
         } else {
             Color lightBackground = Color.WHITE;
             formPanel.setBackground(lightBackground);
             cuentasPanel.setBackground(lightBackground);
+            bonoPanel.setBackground(lightBackground);
             ciPanel.setBackground(lightBackground);
             buttonPanel.setBackground(lightBackground);
             mainPanel.setBackground(lightBackground);
 
-            TitledBorder border = new TitledBorder("Cuentas Bancarias");
-            border.setTitleColor(UIManager.getColor("TitledBorder.titleColor"));
-            cuentasPanel.setBorder(border);
+            TitledBorder borderCuentas = new TitledBorder("Cuentas Bancarias");
+            borderCuentas.setTitleColor(UIManager.getColor("TitledBorder.titleColor"));
+            cuentasPanel.setBorder(borderCuentas);
+            
+            TitledBorder borderBono = new TitledBorder("Bono Fijo Semanal / Quincenal");
+            borderBono.setTitleColor(UIManager.getColor("TitledBorder.titleColor"));
+            bonoPanel.setBorder(borderBono);
         }
 
+        // --- Componentes del Formulario Básico ---
         txtNombres = new JTextField();
         txtApellidos = new JTextField();
         cbTipoCi = new JComboBox<>(new String[]{"V", "E", "J", "G", "P"});
@@ -120,7 +142,7 @@ public class TrabajadoraDialog extends JDialog {
         formPanel.add(new JLabel("Foto:"), "top");
         formPanel.add(fotoPanel, "span, growx");
 
-
+        // --- Componentes de Cuentas Bancarias ---
         cbBanco = new JComboBox<>(getBancosVenezuela());
         cbTipoCuenta = new JComboBox<>(new String[]{"Ahorro", "Corriente"});
         txtNumeroCuenta = new JTextField();
@@ -150,22 +172,58 @@ public class TrabajadoraDialog extends JDialog {
         tblCuentas.getColumnModel().getColumn(0).setMaxWidth(60);
         
         JScrollPane scrollCuentas = new JScrollPane(tblCuentas);
-        scrollCuentas.setPreferredSize(new Dimension(400, 150));
+        scrollCuentas.setPreferredSize(new Dimension(400, 100)); // Altura ajustada para dejar espacio al bono
         
         JButton btnEliminarCuenta = new JButton("Eliminar Seleccionada");
         
         cuentasPanel.add(scrollCuentas, "span 2, grow");
         cuentasPanel.add(btnEliminarCuenta, "span 2, right");
 
-        JButton btnGuardar = new JButton("Yes");
-        JButton btnCancelar = new JButton("No");
+        // --- Componentes de Bono Fijo (NUEVO) ---
+        chkBonoActivo = new JCheckBox("Activar Bono Fijo");
+        txtMontoBono = new JTextField("0.00");
+        ((AbstractDocument) txtMontoBono.getDocument()).setDocumentFilter(new NumericFilter());
+        txtRazonBono = new JTextField();
+        
+        // Lógica: Habilitar campos solo si el check está activo
+        chkBonoActivo.addActionListener(e -> {
+            boolean activo = chkBonoActivo.isSelected();
+            txtMontoBono.setEnabled(activo);
+            txtRazonBono.setEnabled(activo);
+            if (!activo) {
+                txtMontoBono.setText("0.00");
+                txtRazonBono.setText("");
+            }
+        });
+        txtMontoBono.setEnabled(false);
+        txtRazonBono.setEnabled(false);
+
+        bonoPanel.add(chkBonoActivo, "span 2, wrap");
+        bonoPanel.add(new JLabel("Monto ($):"));
+        bonoPanel.add(txtMontoBono, "growx");
+        bonoPanel.add(new JLabel("Razón (Ej. Limpieza):"));
+        bonoPanel.add(txtRazonBono, "growx");
+
+        // --- Botones de Acción ---
+        JButton btnGuardar = new JButton("Guardar");
+        JButton btnCancelar = new JButton("Cancelar");
         buttonPanel.add(btnGuardar);
         buttonPanel.add(btnCancelar);
 
+        // --- Construcción del Layout Principal ---
         mainPanel.add(formPanel, BorderLayout.NORTH);
-        mainPanel.add(cuentasPanel, BorderLayout.CENTER);
         
-        add(mainPanel, BorderLayout.CENTER);
+        // Contenedor central para Cuentas y Bonos (usamos JPanel con BoxLayout o GridBagLayout para apilarlos)
+        JPanel centerContainer = new JPanel();
+        centerContainer.setLayout(new BoxLayout(centerContainer, BoxLayout.Y_AXIS));
+        centerContainer.setBackground(isDarkMode ? UIManager.getColor("Panel.background") : Color.WHITE);
+        
+        centerContainer.add(cuentasPanel);
+        centerContainer.add(Box.createVerticalStrut(5)); // Espacio entre paneles
+        centerContainer.add(bonoPanel);
+        
+        add(mainPanel, BorderLayout.CENTER); // El formulario va arriba (NORTH del mainPanel interno)
+        mainPanel.add(centerContainer, BorderLayout.CENTER); // Cuentas y Bono van al centro
         add(buttonPanel, BorderLayout.SOUTH);
 
         // --- Listeners ---
@@ -188,7 +246,6 @@ public class TrabajadoraDialog extends JDialog {
                 }
             }
         });
-
 
         if (trabajadora != null) {
             populateFields();
@@ -213,6 +270,16 @@ public class TrabajadoraDialog extends JDialog {
         for (CuentaBancaria cuenta : trabajadora.getCuentas()) {
             cuentasTableModel.addRow(new Object[]{cuenta.isEsPrincipal(), cuenta.getBanco(), cuenta.getTipoDeCuenta(), cuenta.getNumeroDeCuenta()});
         }
+
+        // Cargar datos del bono
+        chkBonoActivo.setSelected(trabajadora.isBonoActivo());
+        txtMontoBono.setText(String.valueOf(trabajadora.getMontoBono()));
+        txtRazonBono.setText(trabajadora.getRazonBono());
+        
+        // Activar campos si corresponde
+        boolean bonoActivo = trabajadora.isBonoActivo();
+        txtMontoBono.setEnabled(bonoActivo);
+        txtRazonBono.setEnabled(bonoActivo);
     }
 
     private void guardar(ActionEvent e) {
@@ -237,6 +304,22 @@ public class TrabajadoraDialog extends JDialog {
             cuentas.add(new CuentaBancaria(banco, tipo, numero, isPrincipal));
         }
         trabajadora.setCuentas(cuentas);
+
+        // Recopilar datos del bono
+        trabajadora.setBonoActivo(chkBonoActivo.isSelected());
+        if (chkBonoActivo.isSelected()) {
+            try {
+                double monto = Double.parseDouble(txtMontoBono.getText().replace(",", "."));
+                trabajadora.setMontoBono(monto);
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "El monto del bono es inválido.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            trabajadora.setRazonBono(txtRazonBono.getText());
+        } else {
+            trabajadora.setMontoBono(0.0);
+            trabajadora.setRazonBono("");
+        }
 
         // Validar trabajadora completa
         TrabajadoraValidator validator = new TrabajadoraValidator();
@@ -477,14 +560,14 @@ public class TrabajadoraDialog extends JDialog {
     static class NumericFilter extends DocumentFilter {
         @Override
         public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
-            if (string.matches("[0-9]+")) {
+            if (string.matches("[0-9.]*")) { // Permite punto decimal para monto
                 super.insertString(fb, offset, string, attr);
             }
         }
 
         @Override
         public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
-            if (text.matches("[0-9]+")) {
+            if (text.matches("[0-9.]*")) {
                 super.replace(fb, offset, length, text, attrs);
             }
         }

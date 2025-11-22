@@ -16,8 +16,17 @@ public class Trabajadora {
     private ImageIcon foto;
     private List<CuentaBancaria> cuentas;
 
+    // NUEVOS CAMPOS PARA EL BONO
+    private boolean bonoActivo;
+    private double montoBono;
+    private String razonBono;
+
     public Trabajadora() {
         this.cuentas = new ArrayList<>();
+        // Inicializar valores por defecto del bono
+        this.bonoActivo = false;
+        this.montoBono = 0.0;
+        this.razonBono = "";
     }
 
     public int getId() {
@@ -102,5 +111,31 @@ public class Trabajadora {
 
     public Optional<CuentaBancaria> getCuentaPrincipal() {
         return cuentas.stream().filter(CuentaBancaria::isEsPrincipal).findFirst();
+    }
+
+    // ===== MÉTODOS GETTER Y SETTER PARA BONOS =====
+
+    public boolean isBonoActivo() {
+        return bonoActivo;
+    }
+
+    public void setBonoActivo(boolean bonoActivo) {
+        this.bonoActivo = bonoActivo;
+    }
+
+    public double getMontoBono() {
+        return montoBono;
+    }
+
+    public void setMontoBono(double montoBono) {
+        this.montoBono = montoBono;
+    }
+
+    public String getRazonBono() {
+        return razonBono;
+    }
+
+    public void setRazonBono(String razonBono) {
+        this.razonBono = razonBono;
     }
 }

@@ -334,7 +334,7 @@ public class Database {
             stmt.execute(sqlInitCorr);
             LOGGER.info("Correlativo inicial verificado/creado.");
             
-            // Modificaciones de tablas existentes
+            // Modificaciones de tablas existentes (Migraciones)
             
             try {
                 stmt.execute("ALTER TABLE sales ADD COLUMN bcv_rate_at_sale REAL DEFAULT 0.0");
@@ -378,13 +378,37 @@ public class Database {
                 // Ignorar si ya existe
             }
             
-            // NUEVO: Agregar columna de saldo
             try {
                 stmt.execute("ALTER TABLE clients ADD COLUMN balance REAL DEFAULT 0.0");
                 LOGGER.info("Columna 'balance' agregada a la tabla 'clients'.");
             } catch (SQLException e) {
-                // La columna ya existe, ignoramos el error
+                // Ignorar si ya existe
             }
+
+            // =================================================================================
+            // NUEVAS COLUMNAS PARA BONOS FIJOS DE TRABAJADORAS
+            // =================================================================================
+            try {
+                stmt.execute("ALTER TABLE trabajadoras ADD COLUMN bono_activo BOOLEAN DEFAULT 0");
+                LOGGER.info("Columna 'bono_activo' agregada a trabajadoras.");
+            } catch (SQLException e) {
+                // Ignorar si ya existe
+            }
+
+            try {
+                stmt.execute("ALTER TABLE trabajadoras ADD COLUMN monto_bono REAL DEFAULT 0.0");
+                LOGGER.info("Columna 'monto_bono' agregada a trabajadoras.");
+            } catch (SQLException e) {
+                // Ignorar si ya existe
+            }
+
+            try {
+                stmt.execute("ALTER TABLE trabajadoras ADD COLUMN razon_bono TEXT");
+                LOGGER.info("Columna 'razon_bono' agregada a trabajadoras.");
+            } catch (SQLException e) {
+                // Ignorar si ya existe
+            }
+            // =================================================================================
 
             LOGGER.info("Agregando/Actualizando lista de servicios...");
             
