@@ -804,6 +804,7 @@ public class CapelliSalesWindow extends JFrame {
                     isDarkMode = false;
                 }
                 SwingUtilities.updateComponentTreeUI(CapelliSalesWindow.this);
+                actualizarTotales(); // Actualizar colores inmediatamente
             } catch (UnsupportedLookAndFeelException ex) {
                 ex.printStackTrace();
             }
@@ -1479,7 +1480,12 @@ public class CapelliSalesWindow extends JFrame {
             montoRestanteLabel.setForeground(new Color(0, 150, 0)); 
             montoRestanteLabel.setText("Total Cubierto. Vuelto ($): " + currencyFormat.format(restantePorPagar * -1));
         } else {
-            montoRestanteLabel.setForeground(Color.RED);
+            // MODIFICACIÓN SOLICITADA: Rojo más claro en modo oscuro
+            if (isDarkMode) {
+                montoRestanteLabel.setForeground(new Color(255, 80, 80)); // Rojo claro
+            } else {
+                montoRestanteLabel.setForeground(Color.RED);
+            }
         }
     }
 

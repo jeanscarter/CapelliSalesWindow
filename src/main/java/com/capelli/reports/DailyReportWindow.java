@@ -1,6 +1,5 @@
 package com.capelli.reports;
 
-import com.capelli.capellisaleswindow.BCVService;
 import com.capelli.database.Database;
 import com.capelli.config.AppConfig;
 import com.formdev.flatlaf.FlatDarkLaf;
@@ -26,33 +25,35 @@ public class DailyReportWindow extends JFrame {
     private final JSpinner dateSpinner;
     
     // Etiquetas de montos
-    private final JLabel rateUsedLabel; // Etiqueta para mostrar la tasa usada
+    private final JLabel rateUsedLabel;
     private final JLabel cashUsdLabel;
     private final JLabel posAndMobilePaymentBsLabel;
     private final JLabel zelleLabel;
     private final JLabel accountsReceivableLabel;
     private final JLabel personalAccountPaymentsLabel;
     private final JLabel othersLabel;
+    private final JLabel totalIvaLabel; // Nuevo Label para IVA
     
     // Etiqueta de Total
     private final JLabel totalDayLabel;
 
     private final DecimalFormat currencyFormat = new DecimalFormat("#,##0.00");
 
-    // Record para transportar datos del worker a la UI
+    // Record actualizado con totalIva
     private record DailyStats(
         double rateUsed,
         double cashUsd, 
         double totalBsCapelli, 
         double totalBsRosa, 
         double zelleUsd, 
-        double receivableUsd
+        double receivableUsd,
+        double totalIva // Nuevo campo
     ) {}
 
     public DailyReportWindow() {
         setTitle("Reporte Diario de Operaciones - Capelli");
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(650, 550); 
+        setSize(650, 600); // Aumentado ligeramente el alto
         setLocationRelativeTo(null);
         setResizable(false);
         
@@ -75,10 +76,11 @@ public class DailyReportWindow extends JFrame {
         accountsReceivableLabel = new JLabel("Cargando...");
         personalAccountPaymentsLabel = new JLabel("Cargando...");
         othersLabel = new JLabel("$ 0.00"); 
+        totalIvaLabel = new JLabel("Cargando..."); // Inicialización
         
         totalDayLabel = new JLabel("$ 0.00");
         totalDayLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        totalDayLabel.setForeground(new Color(0, 150, 0)); // Verde oscuro
+        totalDayLabel.setForeground(new Color(0, 150, 0));
 
         // --- Diseño del Panel (Layout) ---
         JPanel mainPanel = new JPanel(new MigLayout("wrap 2, fillx, insets 15", "[right]15[grow, left]"));
@@ -113,6 +115,15 @@ public class DailyReportWindow extends JFrame {
 
         mainPanel.add(new JLabel("Otros (préstamos, etc.):"));
         mainPanel.add(othersLabel, "growx");
+
+        // Separador pequeño antes del IVA
+        mainPanel.add(new javax.swing.JSeparator(), "span 2, growx, gaptop 5, gapbottom 5");
+
+        // Fila de IVA
+        JLabel lblIvaTitle = new JLabel("Total IVA Recaudado:");
+        lblIvaTitle.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        mainPanel.add(lblIvaTitle);
+        mainPanel.add(totalIvaLabel, "growx");
         
         // Separador Final
         mainPanel.add(new javax.swing.JSeparator(), "span 2, growx, gaptop 10, gapbottom 10");
@@ -143,6 +154,7 @@ public class DailyReportWindow extends JFrame {
                 double totalBsRosa = 0;
                 double zelleUsd = 0; 
                 double receivableUsd = 0;
+                double totalIva = 0;
 
                 try (Connection conn = Database.connect()) {
                     
@@ -156,7 +168,6 @@ public class DailyReportWindow extends JFrame {
                         }
                     }
                     
-                    // Si no hubo ventas o la tasa es 0, usamos la tasa actual/configurada por seguridad
                     if (rateFound <= 0) {
                         rateFound = AppConfig.getDefaultBcvRate();
                     }
@@ -174,7 +185,17 @@ public class DailyReportWindow extends JFrame {
                         }
                     }
 
-                    // 3. Calcular Pagos
+                    // 3. Calcular Total IVA del día
+                    String sqlIva = "SELECT COALESCE(SUM(vat_amount), 0.0) FROM sales WHERE date(sale_date) = ?";
+                    try (PreparedStatement pstmt = conn.prepareStatement(sqlIva)) {
+                        pstmt.setString(1, dateStr);
+                        ResultSet rs = pstmt.executeQuery();
+                        if (rs.next()) {
+                            totalIva = rs.getDouble(1);
+                        }
+                    }
+
+                    // 4. Calcular Pagos
                     String sqlPayments = "SELECT "
                                        + "    p.metodo_pago, p.moneda, p.monto, "
                                        + "    p.destino_pago "
@@ -207,7 +228,6 @@ public class DailyReportWindow extends JFrame {
                                         totalBsCapelli += amount;
                                     }
                                 } else {
-                                    // TD, TC, Efectivo Bs van a Capelli
                                     totalBsCapelli += amount;
                                 }
                             }
@@ -215,10 +235,9 @@ public class DailyReportWindow extends JFrame {
                     }
                 } catch (SQLException e) {
                     LOGGER.log(Level.SEVERE, "Error al cargar datos del reporte diario", e);
-                    // En caso de error retornamos ceros
                 }
                 
-                return new DailyStats(rateFound, cashUsd, totalBsCapelli, totalBsRosa, zelleUsd, receivableUsd);
+                return new DailyStats(rateFound, cashUsd, totalBsCapelli, totalBsRosa, zelleUsd, receivableUsd, totalIva);
             }
 
             @Override
@@ -226,14 +245,11 @@ public class DailyReportWindow extends JFrame {
                 try {
                     DailyStats stats = get();
                     
-                    // Mostrar Tasa usada
                     rateUsedLabel.setText("(Tasa usada: " + currencyFormat.format(stats.rateUsed) + " Bs/$)");
                     
-                    // Conversiones
                     double capelliInUsd = (stats.rateUsed > 0) ? (stats.totalBsCapelli / stats.rateUsed) : 0;
                     double rosaInUsd = (stats.rateUsed > 0) ? (stats.totalBsRosa / stats.rateUsed) : 0;
                     
-                    // Set labels
                     cashUsdLabel.setText("$ " + currencyFormat.format(stats.cashUsd));
                     
                     posAndMobilePaymentBsLabel.setText("Bs " + currencyFormat.format(stats.totalBsCapelli) + 
@@ -245,8 +261,10 @@ public class DailyReportWindow extends JFrame {
                     zelleLabel.setText("$ " + currencyFormat.format(stats.zelleUsd));
                     accountsReceivableLabel.setText("$ " + currencyFormat.format(stats.receivableUsd));
                     
-                    // Calcular Total General en Dólares
-                    // (Nota: othersLabel está hardcodeado a 0 en la inicialización, si hubiera lógica se suma aquí)
+                    // Mostrar IVA
+                    double totalIvaBs = stats.totalIva * stats.rateUsed;
+                    totalIvaLabel.setText("Bs " + currencyFormat.format(totalIvaBs) + " ($ " + currencyFormat.format(stats.totalIva) + ")");
+                    
                     double grandTotal = stats.cashUsd + stats.zelleUsd + stats.receivableUsd + capelliInUsd + rosaInUsd;
                     
                     totalDayLabel.setText("$ " + currencyFormat.format(grandTotal));
@@ -267,6 +285,7 @@ public class DailyReportWindow extends JFrame {
         personalAccountPaymentsLabel.setText(loading);
         zelleLabel.setText(loading);
         accountsReceivableLabel.setText(loading);
+        totalIvaLabel.setText(loading);
         totalDayLabel.setText("$ -");
     }
 
