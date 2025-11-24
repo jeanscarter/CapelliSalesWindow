@@ -22,7 +22,7 @@ public class Database {
         return AppConfig.getDatabaseUrl();
     }
 
-    /**
+   /**
      * Establece una conexión a la base de datos.
      *
      * @return Connection o null si hay error
@@ -30,6 +30,7 @@ public class Database {
     public static Connection connect() {
         Connection conn = null;
         try {
+            Class.forName("org.sqlite.JDBC"); 
             conn = DriverManager.getConnection(getDatabaseUrl());
 
             try (Statement stmt = conn.createStatement()) {
@@ -38,6 +39,12 @@ public class Database {
             }
 
             LOGGER.fine("Conexión a base de datos establecida: " + getDatabaseUrl());
+            
+        } catch (ClassNotFoundException e) {
+            // Esto atrapa el error si la librería no existe
+            LOGGER.log(Level.SEVERE, "Falta el driver de SQLite. Revisa el pom.xml", e);
+            javax.swing.JOptionPane.showMessageDialog(null, "Error Crítico: No se encontró el driver de BD");
+            
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error al conectar a la base de datos", e);
         }
