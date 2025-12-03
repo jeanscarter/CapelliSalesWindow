@@ -1,6 +1,3 @@
-// Archivo: src/main/java/com/capelli/reports/FinancialReportWindow.java
-// (MODIFICADO para ser compatible con pagos múltiples)
-
 package com.capelli.reports;
 
 import com.capelli.database.Database;
@@ -88,9 +85,9 @@ public class FinancialReportWindow extends JFrame {
         LocalDate startLocalDate = startDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         LocalDate endLocalDate = endDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
 
-        // ===== INICIO DE MODIFICACIÓN (SQL) =====
-        // La consulta ahora se une con 'sale_payments' (usando subconsultas con GROUP_CONCAT)
-        // y 'tips' para obtener una vista completa de la transacción por cada item de servicio.
+        // ===== CORRECCIÓN APLICADA =====
+        // Se corrigieron los nombres de columnas para coincidir con la tabla 'sale_payments'
+        // (metodo_pago, monto, moneda, etc.)
         String sql = "SELECT "
                 + "    DATE(s.sale_date, 'localtime') AS Fecha, "
                 + "    s.correlative_number AS Factura, "
@@ -107,14 +104,15 @@ public class FinancialReportWindow extends JFrame {
                 + "    s.bcv_rate_at_sale AS Tasa_BCV_Venta, "
                 + "    ( "
                 + "        SELECT GROUP_CONCAT( "
-                + "            payment_method || ' (' || "
-                + "            printf('%.2f', amount_currency) || ' ' || currency || "
+                + "            metodo_pago || ' (' || "
+                + "            printf('%.2f', monto) || ' ' || moneda || "
                 + "            CASE "
-                + "                WHEN currency = 'Bs' THEN ' / @' || printf('%.2f', bcv_rate_at_payment) "
+                + "                WHEN moneda = 'Bs' THEN ' / @' || printf('%.2f', tasa_bcv_al_pago) "
                 + "                ELSE '' "
-                + "            END || ' = $' || printf('%.2f', amount_usd) || "
-                + "            COALESCE(' / Ref: ' || payment_reference, '') || "
-                + "            COALESCE(' / Dest: ' || payment_destination, '') || "
+                + "            END || ' = $' || "
+                + "            printf('%.2f', CASE WHEN moneda = 'Bs' THEN monto / tasa_bcv_al_pago ELSE monto END) || "
+                + "            COALESCE(' / Ref: ' || referencia_pago, '') || "
+                + "            COALESCE(' / Dest: ' || destino_pago, '') || "
                 + "            ')', "
                 + "            ' | ' "
                 + "        ) "
@@ -122,7 +120,7 @@ public class FinancialReportWindow extends JFrame {
                 + "        WHERE sp.sale_id = s.sale_id "
                 + "    ) AS Pagos_Detallados, "
                 + "    ( "
-                + "        SELECT COALESCE(SUM(sp.amount_usd), 0.0) "
+                + "        SELECT COALESCE(SUM(CASE WHEN sp.moneda = 'Bs' THEN sp.monto / sp.tasa_bcv_al_pago ELSE sp.monto END), 0.0) "
                 + "        FROM sale_payments sp "
                 + "        WHERE sp.sale_id = s.sale_id "
                 + "    ) AS Total_Pagado_USD "
@@ -140,7 +138,6 @@ public class FinancialReportWindow extends JFrame {
                 + "    DATE(s.sale_date, 'localtime') BETWEEN ? AND ? "
                 + "ORDER BY "
                 + "    s.sale_date, s.correlative_number, Trabajadora";
-        // ===== FIN DE MODIFICACIÓN (SQL) =====
 
 
         try (Connection conn = Database.connect();
@@ -166,7 +163,10 @@ public class FinancialReportWindow extends JFrame {
             reportTable.getColumnModel().getColumn(2).setPreferredWidth(180); // Cliente
             reportTable.getColumnModel().getColumn(3).setPreferredWidth(180); // Trabajadora
             reportTable.getColumnModel().getColumn(4).setPreferredWidth(180); // Servicio
-            reportTable.getColumnModel().getColumn(12).setPreferredWidth(400); // Pagos_Detallados
+            // La columna de pagos detallados suele ser larga, está en el índice 13 ahora
+            if(reportTable.getColumnCount() > 13) {
+                reportTable.getColumnModel().getColumn(13).setPreferredWidth(400); 
+            }
 
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error al generar el reporte: " + e.getMessage(), "Error de Base de Datos", JOptionPane.ERROR_MESSAGE);

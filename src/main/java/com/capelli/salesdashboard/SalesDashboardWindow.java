@@ -6,6 +6,8 @@ import com.formdev.flatlaf.FlatDarkLaf;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -33,7 +35,6 @@ import net.miginfocom.swing.MigLayout;
 /**
  * Ventana de Dashboard para visualizar ventas y estadísticas.
  * Muestra historial de ventas y la trabajadora con más servicios realizados.
- * Ahora incluye funcionalidad para editar ventas.
  */
 public class SalesDashboardWindow extends JFrame {
 
@@ -42,7 +43,8 @@ public class SalesDashboardWindow extends JFrame {
     private DefaultTableModel salesTableModel;
     private JTable salesTable;
     private JLabel topSellerLabel;
-    private JButton editSaleButton; // Nuevo botón
+    private JButton editSaleButton; 
+    private JButton viewDetailsButton; // BOTÓN NUEVO
     private final DecimalFormat currencyFormat = new DecimalFormat("$#,##0.00");
 
     public SalesDashboardWindow() {
@@ -78,8 +80,8 @@ public class SalesDashboardWindow extends JFrame {
             
             @Override
             public Class<?> getColumnClass(int columnIndex) {
-                // Columnas 0, 5, 6, 7 son numéricas
-                if (columnIndex == 0) return Object.class; // Permite String (Correlativo) o Int (ID)
+                // Columnas 0, 5, 6, 7 son numéricas o de moneda
+                if (columnIndex == 0) return Object.class; 
                 if (columnIndex >= 5 && columnIndex <= 7) return String.class;
                 return String.class;
             }
@@ -88,19 +90,32 @@ public class SalesDashboardWindow extends JFrame {
         salesTable = new JTable(salesTableModel);
         salesTable.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         salesTable.setRowHeight(25);
-        salesTable.setAutoCreateRowSorter(true); // Permite ordenar columnas
+        salesTable.setAutoCreateRowSorter(true); 
+        
+        // Listener para doble clic -> Ver Detalles
+        salesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    verDetallesVenta();
+                }
+            }
+        });
         
         topSellerLabel = new JLabel("Cargando estadísticas...", SwingConstants.CENTER);
         topSellerLabel.setFont(new Font("Segoe UI", Font.BOLD, 22));
 
-        // Inicializar el botón de editar
+        // Inicializar botones
         editSaleButton = new JButton("Editar Venta Seleccionada");
         editSaleButton.setFont(new Font("Segoe UI", Font.BOLD, 14));
         editSaleButton.addActionListener(e -> editarVentaSeleccionada());
+        
+        viewDetailsButton = new JButton("Ver Detalles de Factura");
+        viewDetailsButton.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        viewDetailsButton.addActionListener(e -> verDetallesVenta());
     }
 
     private void layoutComponents() {
-        // Se añade una fila extra al layout para el botón: "[][grow][]"
         JPanel mainPanel = new JPanel(new MigLayout("fill, insets 15", "[grow]", "[][grow][]"));
 
         // Panel de trabajadora destacada
@@ -112,13 +127,14 @@ public class SalesDashboardWindow extends JFrame {
         
         // Panel de historial de ventas
         JPanel salesPanel = new JPanel(new BorderLayout());
-        salesPanel.setBorder(BorderFactory.createTitledBorder("Historial de Ventas"));
+        salesPanel.setBorder(BorderFactory.createTitledBorder("Historial de Ventas (Doble clic para ver detalles)"));
         salesPanel.add(new JScrollPane(salesTable), BorderLayout.CENTER);
 
-        mainPanel.add(salesPanel, "grow, wrap"); // 'wrap' para saltar a la siguiente fila
+        mainPanel.add(salesPanel, "grow, wrap"); 
 
-        // Panel de botones (Nuevo)
+        // Panel de botones
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.add(viewDetailsButton); // Añadido
         buttonPanel.add(editSaleButton);
         
         mainPanel.add(buttonPanel, "growx");
@@ -126,9 +142,6 @@ public class SalesDashboardWindow extends JFrame {
         add(mainPanel);
     }
 
-    /**
-     * Carga los datos de ventas desde la base de datos.
-     */
     private void loadSalesData() {
         LOGGER.info("Cargando datos de ventas...");
         salesTableModel.setRowCount(0);
@@ -168,7 +181,6 @@ public class SalesDashboardWindow extends JFrame {
                     serviceName += " (Cliente)";
                 }
                 
-                // Lógica para mostrar el Correlativo
                 String correlativoStr = rs.getString("correlative_number");
                 Object idVentaMostrar;
                 if (correlativoStr != null && !correlativoStr.isEmpty()) {
@@ -181,7 +193,6 @@ public class SalesDashboardWindow extends JFrame {
                     idVentaMostrar = rs.getInt("sale_id");
                 }
                 
-                // Lógica para formatear fecha
                 String rawDate = rs.getString("sale_date");
                 String formattedDate = rawDate;
                 try {
@@ -208,27 +219,12 @@ public class SalesDashboardWindow extends JFrame {
             
             LOGGER.info("Cargadas " + rowCount + " ventas exitosamente");
             
-            if (rowCount == 0) {
-                LOGGER.warning("No se encontraron ventas en la base de datos");
-                JOptionPane.showMessageDialog(this,
-                    "No hay ventas registradas aún.",
-                    "Sin Datos",
-                    JOptionPane.INFORMATION_MESSAGE);
-            }
-            
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error al cargar el historial de ventas", e);
-            JOptionPane.showMessageDialog(this,
-                "Error al cargar el historial de ventas:\n" + e.getMessage(),
-                "Error de Base de Datos",
-                JOptionPane.ERROR_MESSAGE);
-            topSellerLabel.setText("Error al cargar datos");
+            JOptionPane.showMessageDialog(this, "Error al cargar datos: " + e.getMessage());
         }
     }
 
-    /**
-     * Carga la trabajadora con más servicios realizados.
-     */
     private void loadTopSeller() {
         LOGGER.info("Calculando trabajadora con más servicios...");
         
@@ -248,10 +244,7 @@ public class SalesDashboardWindow extends JFrame {
             if (rs.next()) {
                 String topSellerName = rs.getString("full_name");
                 int serviceCount = rs.getInt("services_count");
-                
-                topSellerLabel.setText(String.format("🏆 %s (%d servicios)", 
-                    topSellerName, serviceCount));
-                
+                topSellerLabel.setText(String.format("🏆 %s (%d servicios)", topSellerName, serviceCount));
             } else {
                 topSellerLabel.setText("Aún no hay datos de ventas.");
             }
@@ -262,74 +255,71 @@ public class SalesDashboardWindow extends JFrame {
         }
     }
     
-    /**
-     * Acción para editar la venta seleccionada en la tabla.
-     */
     private void editarVentaSeleccionada() {
         int selectedRow = salesTable.getSelectedRow();
         if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(this, 
-                "Por favor, selecciona una venta de la tabla para editar.", 
-                "Aviso", 
-                JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Por favor, selecciona una venta para editar.", "Aviso", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        // Obtener el valor de la columna ID (puede ser Correlativo o ID interno)
         Object idObj = salesTableModel.getValueAt(salesTable.convertRowIndexToModel(selectedRow), 0);
         String idStr = String.valueOf(idObj);
-        
-        // Resolver el ID real de la base de datos (sale_id)
         long saleId = getSaleIdFromCorrelative(idStr);
         
         if (saleId == -1) {
-             JOptionPane.showMessageDialog(this, 
-                 "No se pudo identificar el ID interno de la venta.", 
-                 "Error", 
-                 JOptionPane.ERROR_MESSAGE);
+             JOptionPane.showMessageDialog(this, "No se pudo identificar el ID interno de la venta.", "Error", JOptionPane.ERROR_MESSAGE);
              return;
         }
 
-        // Abrir la ventana principal en modo edición
         try {
             CapelliSalesWindow editWindow = new CapelliSalesWindow(saleId);
             editWindow.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
             editWindow.setVisible(true);
-            
-            // Listener para refrescar el dashboard cuando se cierre la ventana de edición
             editWindow.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent windowEvent) {
-                    LOGGER.info("Ventana de edición cerrada, refrescando dashboard...");
                     refreshDashboard();
                 }
             });
-            
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Error al abrir ventana de edición", e);
-            JOptionPane.showMessageDialog(this, 
-                "Error al abrir el editor: " + e.getMessage(), 
-                "Error", 
-                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+    
+    private void verDetallesVenta() {
+        int selectedRow = salesTable.getSelectedRow();
+        if (selectedRow == -1) {
+            JOptionPane.showMessageDialog(this, "Por favor, selecciona una venta para ver detalles.", "Aviso", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        Object idObj = salesTableModel.getValueAt(salesTable.convertRowIndexToModel(selectedRow), 0);
+        String idStr = String.valueOf(idObj);
+        long saleId = getSaleIdFromCorrelative(idStr);
+        
+        if (saleId == -1) {
+             JOptionPane.showMessageDialog(this, "No se pudo identificar el ID interno de la venta.", "Error", JOptionPane.ERROR_MESSAGE);
+             return;
+        }
+
+        // Abrir la ventana de detalle
+        try {
+            InvoiceDetailWindow detailWindow = new InvoiceDetailWindow(saleId);
+            detailWindow.setVisible(true);
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error al abrir ventana de detalles", e);
+            JOptionPane.showMessageDialog(this, "Error al abrir detalles: " + e.getMessage());
         }
     }
 
-    /**
-     * Busca el sale_id real en la base de datos dado un número correlativo (o ID).
-     */
     private long getSaleIdFromCorrelative(String correlativeOrId) {
         String sql = "SELECT sale_id FROM sales WHERE correlative_number = ? OR sale_id = ? LIMIT 1";
-        
         try (Connection conn = Database.connect(); 
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
             pstmt.setString(1, correlativeOrId);
-            pstmt.setString(2, correlativeOrId); // Intentar matchear como ID si falla correlativo
-            
+            pstmt.setString(2, correlativeOrId); 
             try (ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getLong("sale_id");
-                }
+                if (rs.next()) return rs.getLong("sale_id");
             }
         } catch (SQLException e) {
             LOGGER.log(Level.SEVERE, "Error buscando sale_id para: " + correlativeOrId, e);
@@ -349,7 +339,6 @@ public class SalesDashboardWindow extends JFrame {
         } catch (Exception ex) {
             LOGGER.log(Level.WARNING, "Failed to initialize LaF", ex);
         }
-        
         SwingUtilities.invokeLater(() -> {
             Database.initialize();
             SalesDashboardWindow window = new SalesDashboardWindow();
