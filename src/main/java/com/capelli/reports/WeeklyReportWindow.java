@@ -19,9 +19,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -69,14 +66,14 @@ public class WeeklyReportWindow extends JFrame {
 
         // Configuración de Tabla
         String[] columnNames = {
-            "Fecha", 
-            "Efectivo ($)", 
-            "Pto Venta/PM Capelli ($)", 
-            "Zelle ($)", 
-            "Ctas por Cobrar ($)", 
-            "Pago Cta Personal ($)", 
-            "Otros ($)", 
-            "TOTAL DÍA ($)"
+                "Fecha",
+                "Efectivo ($)",
+                "Pto Venta/PM Capelli ($)",
+                "Zelle ($)",
+                "Ctas por Cobrar ($)",
+                "Pago Cta Personal ($)",
+                "Otros ($)",
+                "TOTAL DÍA ($)"
         };
 
         tableModel = new DefaultTableModel(columnNames, 0) {
@@ -84,6 +81,7 @@ public class WeeklyReportWindow extends JFrame {
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
+
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return columnIndex == 0 ? String.class : String.class;
@@ -93,17 +91,17 @@ public class WeeklyReportWindow extends JFrame {
         reportTable = new JTable(tableModel);
         reportTable.setRowHeight(25);
         reportTable.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        
+
         // Renderizar columna de totales en negrita
         DefaultTableCellRenderer boldRenderer = new DefaultTableCellRenderer();
         boldRenderer.setFont(new Font("Segoe UI", Font.BOLD, 14));
         boldRenderer.setHorizontalAlignment(JLabel.RIGHT);
         reportTable.getColumnModel().getColumn(7).setCellRenderer(boldRenderer);
-        
+
         // Alinear números a la derecha
         DefaultTableCellRenderer rightRenderer = new DefaultTableCellRenderer();
         rightRenderer.setHorizontalAlignment(JLabel.RIGHT);
-        for(int i=1; i<7; i++) {
+        for (int i = 1; i < 7; i++) {
             reportTable.getColumnModel().getColumn(i).setCellRenderer(rightRenderer);
         }
 
@@ -119,7 +117,7 @@ public class WeeklyReportWindow extends JFrame {
         // Panel de Control Superior
         JPanel controlsPanel = new JPanel(new MigLayout("fillx", "[right]10[grow]20[right]10[grow]20[]20[]"));
         controlsPanel.setBorder(new TitledBorder("Rango de Consulta"));
-        
+
         JButton btnConsultar = new JButton("Generar Reporte");
         btnConsultar.setIcon(UIManager.getIcon("FileView.directoryIcon"));
         btnConsultar.addActionListener(e -> generarReporte());
@@ -155,7 +153,8 @@ public class WeeklyReportWindow extends JFrame {
         Date end = (Date) endDateSpinner.getValue();
 
         if (start.after(end)) {
-            JOptionPane.showMessageDialog(this, "La fecha de inicio no puede ser mayor a la fecha fin.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "La fecha de inicio no puede ser mayor a la fecha fin.", "Error",
+                    JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -167,14 +166,11 @@ public class WeeklyReportWindow extends JFrame {
             @Override
             protected List<DailyData> doInBackground() throws Exception {
                 List<DailyData> dataList = new ArrayList<>();
-                
-                LocalDate startLd = start.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
-                LocalDate endLd = end.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
-                long daysBetween = ChronoUnit.DAYS.between(startLd, endLd);
 
-                // Iterar día por día para asegurar que días sin ventas aparezcan (opcional, aquí solo buscaremos los que tengan datos si preferimos, 
+                // Iterar día por día para asegurar que días sin ventas aparezcan (opcional,
+                // aquí solo buscaremos los que tengan datos si preferimos,
                 // pero para consistencia iteraremos el rango)
-                
+
                 Calendar cal = Calendar.getInstance();
                 cal.setTime(start);
 
@@ -182,12 +178,12 @@ public class WeeklyReportWindow extends JFrame {
                     Date currentDate = cal.getTime();
                     DailyData dayData = calcularDatosDia(currentDate);
                     // Solo agregar si hay algún movimiento o si queremos mostrar ceros
-                    if (dayData.getTotalDia() > 0 || true) { 
+                    if (dayData.getTotalDia() > 0 || true) {
                         dataList.add(dayData);
                     }
                     cal.add(Calendar.DAY_OF_MONTH, 1);
                 }
-                
+
                 return dataList;
             }
 
@@ -198,7 +194,8 @@ public class WeeklyReportWindow extends JFrame {
                     llenarTabla(results);
                 } catch (Exception e) {
                     LOGGER.log(Level.SEVERE, "Error al generar reporte semanal", e);
-                    JOptionPane.showMessageDialog(WeeklyReportWindow.this, "Error al consultar base de datos: " + e.getMessage());
+                    JOptionPane.showMessageDialog(WeeklyReportWindow.this,
+                            "Error al consultar base de datos: " + e.getMessage());
                 } finally {
                     setCursor(Cursor.getDefaultCursor());
                 }
@@ -209,12 +206,12 @@ public class WeeklyReportWindow extends JFrame {
 
     private DailyData calcularDatosDia(Date date) {
         String dateStr = sdfSql.format(date);
-        
+
         double rateUsed = 0.0;
         double efectivoUsd = 0;
         double ptoVentaBsCapelli = 0; // En Bs
-        double ptoVentaBsRosa = 0;    // En Bs (Cta Personal)
-        double zelleUsd = 0; 
+        double ptoVentaBsRosa = 0; // En Bs (Cta Personal)
+        double zelleUsd = 0;
         double cxcUsd = 0;
         double otros = 0;
 
@@ -228,21 +225,23 @@ public class WeeklyReportWindow extends JFrame {
                     rateUsed = rs.getDouble("bcv_rate_at_sale");
                 }
             }
-            if (rateUsed <= 0) rateUsed = AppConfig.getDefaultBcvRate();
+            if (rateUsed <= 0)
+                rateUsed = AppConfig.getDefaultBcvRate();
 
             // 2. Cuentas por Cobrar
             String sqlCxc = "SELECT COALESCE(SUM(total), 0.0) FROM sales WHERE date(sale_date) = ? AND discount_type = 'Cuenta por Cobrar'";
             try (PreparedStatement pstmt = conn.prepareStatement(sqlCxc)) {
                 pstmt.setString(1, dateStr);
                 ResultSet rs = pstmt.executeQuery();
-                if (rs.next()) cxcUsd = rs.getDouble(1);
+                if (rs.next())
+                    cxcUsd = rs.getDouble(1);
             }
 
             // 3. Pagos
             String sqlPayments = "SELECT p.metodo_pago, p.moneda, p.monto, p.destino_pago " +
-                                 "FROM sale_payments p " +
-                                 "JOIN sales s ON p.sale_id = s.sale_id " +
-                                 "WHERE date(s.sale_date) = ? AND s.discount_type != 'Cuenta por Cobrar'";
+                    "FROM sale_payments p " +
+                    "JOIN sales s ON p.sale_id = s.sale_id " +
+                    "WHERE date(s.sale_date) = ? AND s.discount_type != 'Cuenta por Cobrar'";
 
             try (PreparedStatement pstmt = conn.prepareStatement(sqlPayments)) {
                 pstmt.setString(1, dateStr);
@@ -295,15 +294,15 @@ public class WeeklyReportWindow extends JFrame {
         for (DailyData d : data) {
             // Solo agregar filas si hay montos (opcional)
             if (d.getTotalDia() > 0.01) {
-                tableModel.addRow(new Object[]{
-                    sdfDisplay.format(d.fecha),
-                    df.format(d.efectivo),
-                    df.format(d.capelliBsConverted),
-                    df.format(d.zelle),
-                    df.format(d.cxc),
-                    df.format(d.rosaBsConverted),
-                    df.format(d.otros),
-                    df.format(d.getTotalDia())
+                tableModel.addRow(new Object[] {
+                        sdfDisplay.format(d.fecha),
+                        df.format(d.efectivo),
+                        df.format(d.capelliBsConverted),
+                        df.format(d.zelle),
+                        df.format(d.cxc),
+                        df.format(d.rosaBsConverted),
+                        df.format(d.otros),
+                        df.format(d.getTotalDia())
                 });
             }
 
@@ -317,19 +316,19 @@ public class WeeklyReportWindow extends JFrame {
         }
 
         // Agregar fila de Totales del Rubro
-        tableModel.addRow(new Object[]{"", "", "", "", "", "", "", ""}); // Espacio
-        tableModel.addRow(new Object[]{
-            "TOTALES RUBRO:",
-            df.format(sumEfectivo),
-            df.format(sumCapelli),
-            df.format(sumZelle),
-            df.format(sumCxc),
-            df.format(sumRosa),
-            df.format(sumOtros),
-            df.format(sumTotalGeneral)
+        tableModel.addRow(new Object[] { "", "", "", "", "", "", "", "" }); // Espacio
+        tableModel.addRow(new Object[] {
+                "TOTALES RUBRO:",
+                df.format(sumEfectivo),
+                df.format(sumCapelli),
+                df.format(sumZelle),
+                df.format(sumCxc),
+                df.format(sumRosa),
+                df.format(sumOtros),
+                df.format(sumTotalGeneral)
         });
 
-        // Colorear la ultima fila si se usa un renderer custom, 
+        // Colorear la ultima fila si se usa un renderer custom,
         // pero por ahora actualizamos el label grande
         totalPeriodoLabel.setText("Total Periodo: $ " + df.format(sumTotalGeneral));
     }
@@ -351,7 +350,10 @@ public class WeeklyReportWindow extends JFrame {
                 for (int i = 0; i < tableModel.getRowCount(); i++) {
                     for (int j = 0; j < tableModel.getColumnCount(); j++) {
                         Object val = tableModel.getValueAt(i, j);
-                        String str = (val == null) ? "" : val.toString().replace(",", "."); // Reemplazar coma decimal por punto para CSV estándar o mantener coma si es excel europeo
+                        String str = (val == null) ? "" : val.toString().replace(",", "."); // Reemplazar coma decimal
+                                                                                            // por punto para CSV
+                                                                                            // estándar o mantener coma
+                                                                                            // si es excel europeo
                         fw.write(str + ((j == tableModel.getColumnCount() - 1) ? "" : ","));
                     }
                     fw.write("\n");
@@ -365,14 +367,13 @@ public class WeeklyReportWindow extends JFrame {
 
     // Clase interna para almacenar datos
     private record DailyData(
-        Date fecha,
-        double efectivo,
-        double capelliBsConverted, // Pto Venta / Pago Movil Capelli convertido
-        double zelle,
-        double cxc,
-        double rosaBsConverted,    // Pago Cta Personal convertido
-        double otros
-    ) {
+            Date fecha,
+            double efectivo,
+            double capelliBsConverted, // Pto Venta / Pago Movil Capelli convertido
+            double zelle,
+            double cxc,
+            double rosaBsConverted, // Pago Cta Personal convertido
+            double otros) {
         public double getTotalDia() {
             return efectivo + capelliBsConverted + zelle + cxc + rosaBsConverted + otros;
         }

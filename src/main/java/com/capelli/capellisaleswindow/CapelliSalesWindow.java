@@ -4,7 +4,7 @@ import com.capelli.clientmanagementwindow.ClientManagementWindow;
 import com.capelli.database.Database;
 import com.capelli.model.Trabajadora;
 import com.capelli.reports.DailyReportWindow;
-import com.capelli.reports.WeeklyReportWindow; // IMPORTACIÓN AGREGADA
+
 import com.capelli.salesdashboard.SalesDashboardWindow;
 import com.capelli.ui.MainPanel;
 import com.formdev.flatlaf.FlatDarkLaf;

@@ -1,6 +1,6 @@
 package com.capelli.capellisaleswindow;
 
-import com.capelli.validation.ValidationHelper;
+
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;
@@ -12,7 +12,7 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
+
 import java.util.function.Supplier;
 
 public class MultiPagoPanel extends JPanel {

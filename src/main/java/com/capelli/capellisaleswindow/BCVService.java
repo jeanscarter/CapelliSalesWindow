@@ -27,7 +27,7 @@ public class BCVService {
             
             LOGGER.info("Consultando tasa BCV desde: " + apiUrl);
             
-            URL url = new URL(apiUrl);
+            URL url = java.net.URI.create(apiUrl).toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(timeout);
